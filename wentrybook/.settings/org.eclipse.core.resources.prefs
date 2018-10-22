@@ -1,2 +1,6 @@
 eclipse.preferences.version=1
+encoding//src/Scripts/python/embeddedmacro.py=utf-8
 encoding//src/Scripts/python/pythonpath/pqwentry/commons.py=utf-8
+encoding//src/Scripts/python/pythonpath/pqwentry/journal.py=utf-8
+encoding//tools/getEmbeddedScripts.py=utf-8
+encoding//tools/replaceEmbeddedScripts.py=utf-8
