@@ -5,7 +5,7 @@
 # import pydevd; pydevd.settrace(stdoutToServer=True, stderrToServer=True)
 import os, platform, subprocess, traceback, unohelper
 from . import dialogcommons
-from com.sun.star.awt import XMouseListener
+from com.sun.star.awt import XActionListener, XMouseListener
 from com.sun.star.awt import MessageBoxButtons, MessageBoxResults, PosSize, SystemPointer  # 定数
 from com.sun.star.awt.MessageBoxType import ERRORBOX, QUERYBOX  # enum
 from com.sun.star.beans import NamedValue  # Struct
@@ -21,7 +21,8 @@ def createDialog(xscriptcontext):  # 選択範囲を削除して、フレーム�
 	docframe = doc.getCurrentController().getFrame()  # モデル→コントローラ→フレーム、でドキュメントのフレームを取得。
 	containerwindow = docframe.getContainerWindow()  # ドキュメントのウィンドウ(コンテナウィンドウ=ピア)を取得。
 	maTopx = dialogcommons.createConverters(containerwindow)  # ma単位をピクセルに変換する関数を取得。	
-	lines = traceback.format_exc().split("\n")  # トレースバックを改行で分割。
+	txt = traceback.format_exc()
+	lines = txt.split("\n")  # トレースバックを改行で分割。
 	h = 20  # FixedTextコントロールの高さ。ma単位。2行分。	
 	dialogwidth = 380  # ウィンドウの幅。ma単位。
 	controlcontainerprops = {"PositionX": 20, "PositionY": 120, "Width": dialogwidth, "Height": 10, "BackgroundColor": 0xF0F0F0}  # Heightは後で設定し直す。PositionXとPositionYはTaskCreatorに渡したら0にする。
@@ -43,8 +44,11 @@ def createDialog(xscriptcontext):  # 選択範囲を削除して、フレーム�
 			else:
 				fixedtextcontrol = addControl("FixedText", *fixedtextprops)
 			controlheight += h
-	controlrectangle = fixedtextcontrol.getPosSize()  # コントロール間の間隔を幅はX、高さはYから取得。最後に追加したコントロールから取得。
-	controlcontainer.setPosSize(0, 0, 0, controlrectangle.Y+controlrectangle.Height, PosSize.HEIGHT)  # 最後の行からダイアログの高さを再設定。
+	buttonprops1 = {"PositionX": 10, "PositionY": controlheight, "Width": 60, "Height": 14, "Label": "to ClipBoard"}  # ボタンのプロパティ。PushButtonTypeの値はEnumではエラーになる。VerticalAlignではtextboxと高さが揃わない。
+	actionlistener = ActionListener(xscriptcontext, txt)  # ボタンコントロールにつけるリスナー。		
+	button1 = addControl("Button", buttonprops1, {"addActionListener": actionlistener, "setActionCommand": "copy"})  
+	controlrectangle = button1.getPosSize()  # コントロール間の間隔を幅はX、高さはYから取得。最後に追加したコントロールから取得。
+	controlcontainer.setPosSize(0, 0, 0, controlrectangle.Y+controlrectangle.Height+10, PosSize.HEIGHT)  # 最後の行からダイアログの高さを再設定。
 	rectangle = controlcontainer.getPosSize()  # コントロールコンテナのRectangle Structを取得。px単位。
 	controlcontainer.setPosSize(0, 0, 0, 0, PosSize.POS)  # コントロールコンテナの位置をTaskCreatorのウィンドウの原点にする。
 	taskcreator = smgr.createInstanceWithContext('com.sun.star.frame.TaskCreator', ctx)
@@ -57,15 +61,16 @@ def createDialog(xscriptcontext):  # 選択範囲を削除して、フレーム�
 	controlcontainer.createPeer(toolkit, dialogwindow) # ウィンドウにコントロールコンテナを描画。
 	controlcontainer.setVisible(True)  # コントロールの表示。
 	dialogwindow.setVisible(True) # ウィンドウの表示。これ以降WindowListenerが発火する。
-	args = mouselistener, subjs
+	args = mouselistener, actionlistener, button1, subjs
 	dialogframe.addCloseListener(CloseListener(args))  # CloseListener。ノンモダルダイアログのリスナー削除用。		
 class CloseListener(unohelper.Base, XCloseListener):  # ノンモダルダイアログのリスナー削除用。
 	def __init__(self, args):
 		self.args = args
 	def queryClosing(self, eventobject, getsownership):  # ノンモダルダイアログを閉じる時に発火。
-		mouselistener, subjs = self.args
+		mouselistener, actionlistener, button1, subjs = self.args
 		for i in subjs:
 			i.removeMouseListener(mouselistener)
+		button1.removeActionListener(actionlistener)
 		eventobject.Source.removeCloseListener(self)
 	def notifyClosing(self, eventobject):
 		pass
@@ -125,3 +130,16 @@ class MouseListener(unohelper.Base, XMouseListener):  # Editコントロール�
 		pass
 	def disposing(self, eventobject):
 		eventobject.Source.removeMouseListener(self)	
+class ActionListener(unohelper.Base, XActionListener):
+	def __init__(self, *args):
+		self.args = args
+	def actionPerformed(self, actionevent):
+		cmd = actionevent.ActionCommand
+		if cmd=="copy":  
+			xscriptcontext, txt = self.args
+			ctx = xscriptcontext.getComponentContext()  # コンポーネントコンテクストの取得。
+			smgr = ctx.getServiceManager()  # サービスマネージャーの取得。			
+			systemclipboard = smgr.createInstanceWithContext("com.sun.star.datatransfer.clipboard.SystemClipboard", ctx)  # SystemClipboard。クリップボードへのコピーに利用。
+			systemclipboard.setContents(dialogcommons.TextTransferable(txt), None)  # クリップボードにコピーする。
+	def disposing(self, eventobject):
+		pass
