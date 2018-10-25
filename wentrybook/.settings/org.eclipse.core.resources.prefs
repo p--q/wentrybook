@@ -2,6 +2,7 @@ eclipse.preferences.version=1
 encoding//src/Scripts/python/embeddedmacro.py=utf-8
 encoding//src/Scripts/python/pythonpath/pqwentry/commons.py=utf-8
 encoding//src/Scripts/python/pythonpath/pqwentry/dialogcommons.py=utf-8
+encoding//src/Scripts/python/pythonpath/pqwentry/documentevent.py=utf-8
 encoding//src/Scripts/python/pythonpath/pqwentry/exceptiondialog2.py=utf-8
 encoding//src/Scripts/python/pythonpath/pqwentry/journal.py=utf-8
 encoding//src/Scripts/python/pythonpath/pqwentry/staticdialog.py=utf-8

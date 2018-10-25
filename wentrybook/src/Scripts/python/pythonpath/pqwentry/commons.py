@@ -1,7 +1,7 @@
 #!/opt/libreoffice5.4/program/python
 # -*- coding: utf-8 -*-
 import os, unohelper
-from pqdesignr2 import ichiran, points, documentevent  # Contextmenuの呼び出しは相対インポートではエラーになる。
+from pqwentry import documentevent, journal  # Contextmenuの呼び出しは相対インポートではエラーになる。
 from com.sun.star.awt import MessageBoxButtons  # 定数
 from com.sun.star.awt.MessageBoxType import ERRORBOX  # enum
 from com.sun.star.datatransfer import XTransferable
@@ -37,12 +37,8 @@ HOLIDAYS = {\
 def getModule(sheetname):  # シート名に応じてモジュールを振り分ける関数。
 	if sheetname is None:  # シート名でNoneが返ってきた時はドキュメントイベントとする。
 		return documentevent
-	elif sheetname.startswith("00000000"):  # テンプレートの時は何もしない。
-		pass
-	elif sheetname=="一覧":
-		return ichiran
-	elif sheetname.isdigit():  # シート名が数字のみの時IDシート。
-		return points
+	elif sheetname=="仕訳日記":
+		return journal
 	return None  # モジュールが見つからなかった時はNoneを返す。
 class TextTransferable(unohelper.Base, XTransferable):
 	def __init__(self, txt):  # クリップボードに渡す文字列を受け取る。
