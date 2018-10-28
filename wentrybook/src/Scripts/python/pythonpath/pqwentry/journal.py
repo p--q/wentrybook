@@ -23,7 +23,7 @@ class Journal():  # シート固有の値。
 		self.hojokamokurow = 3  # 補助科目行インデックス。
 		self.subtotalrow = 4  # 科目毎計行インデックス。
 		self.splittedrow = 5  # 固定行インデックス。
-		self.slipsubtotalcolumn = 0  # 伝票小計列インデックス。
+		self.sliptotalcolumn = 0  # 伝票内計列インデックス。
 		self.slipno = 1  # 伝票番号列インデックス。
 		self.daycolumn = 2  # 取引日列インデックス。
 		self.splittedcolumn = 4  # 固定列インデックス。
@@ -31,10 +31,14 @@ class Journal():  # シート固有の値。
 		self.sheet = sheet
 		cellranges = sheet[self.splittedrow:, self.daycolumn].queryContentCells(CellFlags.DATETIME)  # 取引日列の日付列が入っているセルに限定して抽出。
 		self.emptyrow = cellranges.getRangeAddresses()[-1].EndRow + 1  # 取引日列の最終行インデックス+1を取得。
-
-		# 科目行または補助科目行の右端空列を取得。
-
-
+		columnedges = []
+		cellranges = sheet[self.kamokurow, self.splittedcolumn:].queryContentCells(CellFlags.STRING) 
+		if len(cellranges):
+			columnedges.append(cellranges.getRangeAddresses()[-1].EndColumn+1)  # 科目行の右端+1インデックスを取得。
+		cellranges = sheet[self.hojokamokurow, self.splittedcolumn:].queryContentCells(CellFlags.STRING) 
+		if len(cellranges):
+			columnedges.append(cellranges.getRangeAddresses()[-1].EndColumn+1)  # 補助科目行の右端+1インデックスを取得。
+		self.emptycolumn = max(columnedges, default=self.splittedcolumn)  # 科目行または補助科目行の右端空列を取得。
 VARS = Journal()
 def activeSpreadsheetChanged(activationevent, xscriptcontext):  # シートがアクティブになった時。ドキュメントを開いた時は発火しない。
 	initSheet(activationevent.ActiveSheet, xscriptcontext)
@@ -54,8 +58,27 @@ def mousePressed(enhancedmouseevent, xscriptcontext):  # マウスボタンを�
 def selectionChanged(eventobject, xscriptcontext):  # 矢印キーでセル移動した時も発火する。
 	selection = eventobject.Source.getSelection()	
 	if selection.supportsService("com.sun.star.sheet.SheetCellRange"):  # 選択範囲がセル範囲の時。
-		VARS.setSheet(selection.getSpreadsheet())		
+		sheet = selection.getSpreadsheet()
+		VARS.setSheet(sheet)		
 		drowBorders(selection)  # 枠線の作成。
+		splittedrow = VARS.splittedrow
+		slipno = VARS.slipno
+		datarange = sheet[splittedrow:VARS.emptyrow, slipno]
+		datarange.setPropertyValue("CellBackColor", -1)  # 伝票番号列の背景色をクリア。
+		sliprows = datarange.getDataArray()
+		sliprowsset = set(sliprows)
+		duperows = []
+		if len(sliprows)>len(sliprowsset):  # 伝票番号列に重複行がある時。空文字も重複してはいけない。
+			for i in sliprowsset:  # 重複は除いて伝票番号をイテレート。
+				if sliprows.count(i)>1:  # 複数ある時。
+					j = 0
+					while i in sliprows[j:]:
+						j = sliprows.index(i, j)
+						duperows.append(j+splittedrow)  # 重複している伝票番号がある行インデックスを取得。
+						j += 1
+			cellranges = xscriptcontext.getDocument().createInstance("com.sun.star.sheet.SheetCellRanges")  # com.sun.star.sheet.SheetCellRangesをインスタンス化。
+			cellranges.addRangeAddresses([sheet[i, slipno].getRangeAddress() for i in duperows], False)
+			cellranges.setPropertyValue("CellBackColor", commons.COLORS["silver"])  # 重複伝票番号の背景色を返る。
 def drowBorders(selection):  # ターゲットを交点とする行列全体の外枠線を描く。
 	celladdress = selection[0, 0].getCellAddress()  # 選択範囲の左上端のセルアドレスを取得。
 	r = celladdress.Row  # selectionの行と列のインデックスを取得。	
@@ -65,7 +88,7 @@ def drowBorders(selection):  # ターゲットを交点とする行列全体の�
 	if r<VARS.splittedrow:  # 分割行より上の時。
 		return  # 罫線を引き直さない。
 	rangeaddress = selection.getRangeAddress()  # 選択範囲のセル範囲アドレスを取得。
-	sheet[rangeaddress.StartRow:rangeaddress.EndRow+1, :].setPropertyValue("TableBorder2", topbottomtableborder)  # 行の上下に枠線を引く
+	sheet[rangeaddress.StartRow:rangeaddress.EndRow+1, :VARS.emptycolumn].setPropertyValue("TableBorder2", topbottomtableborder)  # 行の上下に枠線を引く
 	sheet[:, rangeaddress.StartColumn:rangeaddress.EndColumn+1].setPropertyValue("TableBorder2", leftrighttableborder)  # 列の左右に枠線を引く。
 	selection.setPropertyValue("TableBorder2", tableborder2)  # 選択範囲の消えた枠線を引き直す。		
 def changesOccurred(changesevent, xscriptcontext):  # Sourceにはドキュメントが入る。マクロで変更した時は発火しない。	
@@ -75,28 +98,35 @@ def changesOccurred(changesevent, xscriptcontext):  # Sourceにはドキュメ�
 			selection = change.ReplacedElement  # 値を変更したセルを取得。	
 			break
 	if selection:  # セルとは限らずセル範囲のときもある。シートからペーストしたときなど。テキストをペーストした時は発火しない。
-# 		import pydevd; pydevd.settrace(stdoutToServer=True, stderrToServer=True)
-		
-		
 		sheet = VARS.sheet
-# 		splittedrow = VARS.splittedrow
-# 		idcolumn = VARS.idcolumn
-# 		kanjicolumn = VARS.kanjicolumn
-# 		ctx = xscriptcontext.getComponentContext()  # コンポーネントコンテクストの取得。
-# 		smgr = ctx.getServiceManager()  # サービスマネージャーの取得。		
-# 		rangeaddress = selection.getRangeAddress()
-# 		transliteration = smgr.createInstanceWithContext("com.sun.star.i18n.Transliteration", ctx)  # Transliteration。		
-# 		transliteration.loadModuleNew((FULLWIDTH_HALFWIDTH,), Locale(Language = "ja", Country = "JP"))			
-# 		for r in range(rangeaddress.StartRow, rangeaddress.EndRow+1):
-# 			for c in range(rangeaddress.StartColumn, rangeaddress.EndColumn+1):
-# 				if r>=splittedrow:  # 分割行以降の時。
-# 					txt = sheet[r, c].getString()  # セルの文字列を取得。			
-# 					if c==idcolumn:  # ID列の時。
-# 						txt = transliteration.transliterate(txt, 0, len(txt), [])[0]  # 半角に変換。
-# 						if txt.isdigit():  # 数値の時のみ。空文字の時0で埋まってしまう。
-# 							sheet[r, c].setString("{:0>8}".format(txt))  # 数値を8桁にして文字列として代入し直す。
-# 					elif c==kanjicolumn:
-# 						sheet[r, c].setString(txt.replace("　", " "))  # 全角スペースを半角スペースに置換。
+		cellranges = sheet[VARS.splittedrow:, :VARS.emptycolumn].queryIntersection(selection.getRangeAddress())  # 固定行以下と科目右列端との選択範囲と重なる部分のセル範囲コレクションを取得。
+		if len(cellranges):  # 変化したセル範囲がある時。
+			VARS.setSheet(sheet)  # 逐次変化する値を取得。取引日列の最終行を再取得したい。
+			deadnos = sorted(set(range(1, VARS.emptyrow-VARS.splittedrow+1)).difference(i[0] for i in sheet[VARS.splittedrow:VARS.emptyrow, VARS.slipno].getDataArray()), reverse=True)  # 伝票番号の空き番号を取得して降順にする。
+			createFormatKey = commons.formatkeyCreator(xscriptcontext.getDocument())
+			for rangeaddress in cellranges.getRangeAddresses():  # セル範囲アドレスをイテレート。
+				datarange = sheet[rangeaddress.StartRow:rangeaddress.EndRow+1, :VARS.emptycolumn]  # 行毎に処理するセル範囲を取得。
+				datarange[:, VARS.daycolumn].setPropertyValue("NumberFormat", createFormatKey("YYYY-MM-DD"))  # 取引日列の書式を設定。
+				newdatarows = []  # 処理後の行データを取得するリスト。
+				for datarow in datarange.getDataArray():  # 各行をイテレート。
+					if datarow[VARS.daycolumn]:  # 取引日列が入力されている時のみ。
+						datarow = list(datarow)
+						datarow[VARS.sliptotalcolumn] = sum(filter(lambda x: isinstance(x, float), datarow[VARS.splittedcolumn:]))  # 行の合計を取得。
+						if not datarow[VARS.slipno]:  # 伝票番号列が空欄の時。
+							datarow[VARS.slipno] = deadnos.pop()  # 空き番号を取得。
+					newdatarows.append(datarow)
+				datarange.setDataArray(newdatarows)
+				datarange = sheet[VARS.splittedrow:VARS.emptyrow, rangeaddress.StartColumn:rangeaddress.EndColumn+1]  # 列毎に処理するセル範囲を取得。
+				sheet[VARS.subtotalrow, rangeaddress.StartColumn:rangeaddress.EndColumn+1].setDataArray(([sum(filter(lambda x: isinstance(x, float), i)) for i in zip(*datarange.getDataArray())],))  # 列ごとの合計を取得。
+			datarange = sheet[VARS.splittedrow:VARS.emptyrow, VARS.sliptotalcolumn]  # 伝票内計列のセル範囲を取得。
+			datarange.setPropertyValues(("CellBackColor", "NumberFormat"), (-1, createFormatKey("#,##0;[BLUE]-#,##0")))  # 背景色をクリア, 書式を設定。
+			searchdescriptor = sheet.createSearchDescriptor()
+			searchdescriptor.setPropertyValue("SearchRegularExpression", True)  # 正規表現を有効にする。
+			searchdescriptor.setSearchString("[^0]")  # 0以外のセルを取得。戻り値はない。	
+			cellranges = datarange.queryContentCells(CellFlags.VALUE).findAll(searchdescriptor)  # 値のあるセルから0以外が入っているセル範囲コレクションを取得。見つからなかった時はNoneが返る。
+			if cellranges:
+				cellranges.setPropertyValue("CellBackColor", commons.COLORS["violet"])	
+			sheet[VARS.subtotalrow:VARS.emptyrow, VARS.splittedcolumn:VARS.emptycolumn].setPropertyValue("NumberFormat", createFormatKey("#,##0;[BLUE]-#,##0"))
 def notifyContextMenuExecute(contextmenuexecuteevent, xscriptcontext):  # 右クリックメニュー。	
 	contextmenuname, addMenuentry, baseurl, selection = commons.contextmenuHelper(VARS, contextmenuexecuteevent, xscriptcontext)
 	celladdress = selection[0, 0].getCellAddress()  # 選択範囲の左上角のセルのアドレスを取得。
