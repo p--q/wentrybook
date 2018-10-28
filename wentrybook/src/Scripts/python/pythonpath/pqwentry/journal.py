@@ -43,7 +43,7 @@ VARS = Journal()
 def activeSpreadsheetChanged(activationevent, xscriptcontext):  # シートがアクティブになった時。ドキュメントを開いた時は発火しない。
 	initSheet(activationevent.ActiveSheet, xscriptcontext)
 def initSheet(sheet, xscriptcontext):	
-	sheet["A1:A2"].setDataArray((("仕訳帳生成",), ("総勘定元帳生成",)))  # よく誤入力されるセルを修正する。つまりボタンになっているセルの修正。
+	sheet["A1:A3"].setDataArray((("仕訳帳生成",), ("総勘定元帳生成",), ("全補助元帳生成",)))  # よく誤入力されるセルを修正する。つまりボタンになっているセルの修正。
 def mousePressed(enhancedmouseevent, xscriptcontext):  # マウスボタンを押した時。controllerにコンテナウィンドウはない。
 	if enhancedmouseevent.Buttons==MouseButton.LEFT:  # 左クリックの時。
 		selection = enhancedmouseevent.Target  # ターゲットのセルを取得。
