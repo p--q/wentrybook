@@ -3,7 +3,7 @@
 # 仕訳日誌シートについて。import pydevd; pydevd.settrace(stdoutToServer=True, stderrToServer=True)
 # import os, unohelper, glob
 # from . import commons, datedialog, points, transientdialog
-from . import commons, datedialog
+from . import commons, datedialog, dialogcommons, historydialog
 # from com.sun.star.accessibility import AccessibleRole  # 定数
 from com.sun.star.awt import MouseButton  # 定数
 # from com.sun.star.awt import MouseButton, MessageBoxButtons, MessageBoxResults, ScrollBarOrientation # 定数
@@ -52,9 +52,21 @@ def mousePressed(enhancedmouseevent, xscriptcontext):  # マウスボタンを�
 			if enhancedmouseevent.ClickCount==2:  # 左ダブルクリックの時。まずselectionChanged()が発火している。
 				celladdress = selection.getCellAddress()
 				r, c = celladdress.Row, celladdress.Column  # selectionの行と列インデックスを取得。	
-				if r>=VARS.splittedrow and c==VARS.daycolumn:  # 取引日列インデックスの時。
+				if r<VARS.splittedrow and c<VARS.splittedcolumn:
+					txt = selection.getString()
+					if txt=="仕訳帳生成":
+						pass
+					
+					elif txt=="総勘定元帳生成":
+						
+						pass
+					elif txt=="全補助元帳生成":
+						
+						pass
+					return False  # セル編集モードにしない。
+				elif r>=VARS.splittedrow and c==VARS.daycolumn:  # 取引日列インデックスの時。
 					datedialog.createDialog(enhancedmouseevent, xscriptcontext, "取引日", "YYYY-MM-DD")	
-					return False
+					return False  # セル編集モードにしない。
 	return True  # セル編集モードにする。シングルクリックは必ずTrueを返さないといけない。		
 def selectionChanged(eventobject, xscriptcontext):  # 矢印キーでセル移動した時も発火する。
 	selection = eventobject.Source.getSelection()	
@@ -135,25 +147,24 @@ def notifyContextMenuExecute(contextmenuexecuteevent, xscriptcontext):  # 右ク
 	sheet = VARS.sheet
 	if contextmenuname=="cell":  # セルのとき。セル範囲も含む。
 		if VARS.splittedcolumn<=c<VARS.emptycolumn:  # 科目行か補助科目行に値がある列の時。
-			datarows = sheet[VARS.kamokurow:VARS.hojokamokurow+1, c].getDataArray()  # 科目行と補助科目行を取得。
-			kamoku = datarows[0][0]
-			hojokamoku = datarows[1][0]
-			if r==VARS.kamokurow and kamoku:  # 科目行かつ科目行に値があるとき。
-				addMenuentry("ActionTrigger", {"Text": "{}の勘定元帳生成".format(kamoku), "CommandURL": baseurl.format("entry2")}) 
-			elif r==VARS.hojokamokurow and hojokamoku:  # 補助科目行かつ補助科目行に値があるとき。:
-				addMenuentry("ActionTrigger", {"Text": "{}の補助元帳生成".format(hojokamoku), "CommandURL": baseurl.format("entry3")}) 
-			elif VARS.splittedrow<=r<=VARS.emptyrow:  # 取引日列が入力済で科目行か補助科目行に値がある列のセルの時。
-				if sheet[r, VARS.sliptotalcolumn].getValue()!=0:  # 伝票内計が0でない時のみ。空セルも0として扱われる。
-					txt = hojokamoku if hojokamoku else kamoku  # 補助科目行に値がある時は補助科目行、ないときは科目行の値を使う。
-					if txt!="現金":  # 現金列でない時のみ。
-						addMenuentry("ActionTrigger", {"Text": "現金で決済", "CommandURL": baseurl.format("entry4")}) 
-					addMenuentry("ActionTrigger", {"Text": "{}で決済".format(txt), "CommandURL": baseurl.format("entry5")}) 
+			if selection.supportsService("com.sun.star.sheet.SheetCell"):  # 単独セルの時のみ。
+				datarows = sheet[VARS.kamokurow:VARS.hojokamokurow+1, c].getDataArray()  # 科目行と補助科目行を取得。
+				kamoku = datarows[0][0]
+				hojokamoku = datarows[1][0]
+				if r==VARS.kamokurow and kamoku:  # 科目行かつ科目行に値があるとき。
+					addMenuentry("ActionTrigger", {"Text": "{}の勘定元帳生成".format(kamoku), "CommandURL": baseurl.format("entry2")}) 
+				elif r==VARS.hojokamokurow and hojokamoku:  # 補助科目行かつ補助科目行に値があるとき。:
+					addMenuentry("ActionTrigger", {"Text": "{}の補助元帳生成".format(hojokamoku), "CommandURL": baseurl.format("entry3")}) 
+				elif VARS.splittedrow<=r<=VARS.emptyrow:  # 取引日列が入力済で科目行か補助科目行に値がある列のセルの時。
+					if sheet[r, VARS.sliptotalcolumn].getValue()!=0:  # 伝票内計が0でない時のみ。空セルも0として扱われる。
+						txt = hojokamoku if hojokamoku else kamoku  # 補助科目行に値がある時は補助科目行、ないときは科目行の値を使う。
+						if txt!="現金":  # 現金列でない時のみ。
+							addMenuentry("ActionTrigger", {"Text": "現金で決済", "CommandURL": baseurl.format("entry4")}) 
+						addMenuentry("ActionTrigger", {"Text": "{}で決済".format(txt), "CommandURL": baseurl.format("entry5")}) 
 		elif c==VARS.tekiyo:  # 摘要列の時。
 			addMenuentry("ActionTrigger", {"Text": "伝票履歴", "CommandURL": baseurl.format("entry6")}) 
-			addMenuentry("ActionTrigger", {"Text": "摘要履歴", "CommandURL": baseurl.format("entry7")}) 
 			addMenuentry("ActionTriggerSeparator", {"SeparatorType": ActionTriggerSeparatorType.LINE})
-			addMenuentry("ActionTrigger", {"Text": "伝票履歴に追加", "CommandURL": baseurl.format("entry8")}) 
-			addMenuentry("ActionTrigger", {"Text": "摘要履歴に追加", "CommandURL": baseurl.format("entry9")}) 
+			addMenuentry("ActionTrigger", {"Text": "伝票履歴に追加", "CommandURL": baseurl.format("entry7")}) 
 		addMenuentry("ActionTriggerSeparator", {"SeparatorType": ActionTriggerSeparatorType.LINE})
 		commons.cutcopypasteMenuEntries(addMenuentry)
 		addMenuentry("ActionTriggerSeparator", {"SeparatorType": ActionTriggerSeparatorType.LINE})
@@ -191,11 +202,26 @@ def contextMenuEntries(entrynum, xscriptcontext):  # コンテクストメニュ
 	elif entrynum==5:  # 決済
 		pass
 	elif entrynum==6:  # 伝票履歴
-		pass
-	elif entrynum==7:  # 摘要履歴
-		pass
-	elif entrynum==8:  # 伝票履歴に追加
-		pass
-	elif entrynum==9:  # 摘要履歴に追加
-		pass
+		historydialog.createDialog(xscriptcontext, "伝票履歴", callback=callback_sliphistory)
+	elif entrynum==7:  # 伝票履歴に追加
+		datarows = VARS.sheet[VARS.kamokurow:VARS.emptyrow, VARS.tekiyo:VARS.emptycolumn].getDataArray()
+		
+		rangeaddress = selection.getRangeAddress()  # 選択範囲のアドレスを取得。
+		for i in range(rangeaddress.StartRow, rangeaddress.EndRow+1):
+			
+		
+		
+		
+		
+		doc = xscriptcontext.getDocument()
+		dialogtitle = "伝票履歴"
+		griddatarows = dialogcommons.getSavedData(doc, "GridDatarows_{}".format(dialogtitle))  # グリッドコントロールの行をconfigシートのragenameから取得する。	
+		if griddatarows:  # 行のリストが取得出来た時。
+			griddatarows.append(griddatarow)
+		else:
+			griddatarows = griddatarow,
+		dialogcommons.saveData(doc, "GridDatarows_{}".format(dialogtitle), griddatarows)
+def callback_sliphistory():
+	
+	pass
 	
