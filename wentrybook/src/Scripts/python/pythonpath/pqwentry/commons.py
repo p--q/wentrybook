@@ -131,6 +131,10 @@ def rowMenuEntries(addMenuentry):  # コンテクストメニュー追加。
 	addMenuentry("ActionTrigger", {"CommandURL": ".uno:InsertRowsBefore"})
 	addMenuentry("ActionTrigger", {"CommandURL": ".uno:InsertRowsAfter"})
 	addMenuentry("ActionTrigger", {"CommandURL": ".uno:DeleteRows"}) 
+def columnMenuEntries(addMenuentry):  # コンテクストメニュー追加。
+	addMenuentry("ActionTrigger", {"CommandURL": ".uno:InsertColumnsBefore"})
+	addMenuentry("ActionTrigger", {"CommandURL": ".uno:InsertColumnsAfter"})
+	addMenuentry("ActionTrigger", {"CommandURL": ".uno:DeleteColumns"}) 	
 def getBaseURL(xscriptcontext):	 # 埋め込みマクロのScriptingURLのbaseurlを返す。__file__はvnd.sun.star.tdoc:/4/Scripts/python/filename.pyというように返ってくる。
 	ctx = xscriptcontext.getComponentContext()  # コンポーネントコンテクストの取得。
 	smgr = ctx.getServiceManager()  # サービスマネージャーの取得。

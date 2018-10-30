@@ -15,7 +15,7 @@ from com.sun.star.sheet import CellFlags  # 定数
 # from com.sun.star.sheet.CellDeleteMode import ROWS as delete_rows  # enum
 # from com.sun.star.table import BorderLine2  # Struct
 # from com.sun.star.table import BorderLineStyle  # 定数
-# from com.sun.star.ui import ActionTriggerSeparatorType  # 定数
+from com.sun.star.ui import ActionTriggerSeparatorType  # 定数
 from com.sun.star.ui.ContextMenuInterceptorAction import EXECUTE_MODIFIED  # enum
 class Journal():  # シート固有の値。
 	def __init__(self):
@@ -26,6 +26,7 @@ class Journal():  # シート固有の値。
 		self.sliptotalcolumn = 0  # 伝票内計列インデックス。
 		self.slipno = 1  # 伝票番号列インデックス。
 		self.daycolumn = 2  # 取引日列インデックス。
+		self.tekiyo = 3  # 摘要列インデックス。
 		self.splittedcolumn = 4  # 固定列インデックス。
 	def setSheet(self, sheet):  # 逐次変化する値。
 		self.sheet = sheet
@@ -130,50 +131,71 @@ def changesOccurred(changesevent, xscriptcontext):  # Sourceにはドキュメ�
 def notifyContextMenuExecute(contextmenuexecuteevent, xscriptcontext):  # 右クリックメニュー。	
 	contextmenuname, addMenuentry, baseurl, selection = commons.contextmenuHelper(VARS, contextmenuexecuteevent, xscriptcontext)
 	celladdress = selection[0, 0].getCellAddress()  # 選択範囲の左上角のセルのアドレスを取得。
-	r = celladdress.Row  # selectionの行と列のインデックスを取得。	
-# 	if r<VARS.splittedrow or r==VARS.blackrow:  # 固定行より上、または黒行の時はコンテクストメニューを表示しない。
-# 		return EXECUTE_MODIFIED
-# 	elif contextmenuname=="cell":  # セルのとき。セル範囲も含む。
-# 		commons.cutcopypasteMenuEntries(addMenuentry)
-# 		addMenuentry("ActionTriggerSeparator", {"SeparatorType": ActionTriggerSeparatorType.LINE})
-# 		addMenuentry("ActionTrigger", {"CommandURL": ".uno:PasteSpecial"})		
-# 		addMenuentry("ActionTriggerSeparator", {"SeparatorType": ActionTriggerSeparatorType.LINE})  # セパレーターを挿入。
-# 		addMenuentry("ActionTrigger", {"Text": "クリア", "CommandURL": baseurl.format("entry1")}) 
-# 	elif contextmenuname=="rowheader" and len(selection[0, :].getColumns())==len(VARS.sheet[0, :].getColumns()):  # 行ヘッダーのとき、かつ、選択範囲の列数がシートの列数が一致している時。	
-# 		if r>=VARS.splittedrow:
-# 			if r<VARS.blackrow:
-# 				addMenuentry("ActionTrigger", {"Text": "使用中最上行へ", "CommandURL": baseurl.format("entry15")})  # 黒行上から使用中最上行へ
-# 				addMenuentry("ActionTrigger", {"Text": "使用中最下行へ", "CommandURL": baseurl.format("entry16")})  # 黒行上から使用中最下行へ
-# 			elif r>VARS.blackrow:  # 黒行以外の時。
-# 				addMenuentry("ActionTrigger", {"Text": "黒行上へ", "CommandURL": baseurl.format("entry17")})  
-# 				addMenuentry("ActionTriggerSeparator", {"SeparatorType": ActionTriggerSeparatorType.LINE})
-# 				addMenuentry("ActionTrigger", {"Text": "使用中最上行へ", "CommandURL": baseurl.format("entry18")})  # 使用中から使用中最上行へ  
-# 				addMenuentry("ActionTrigger", {"Text": "使用中最下行へ", "CommandURL": baseurl.format("entry19")})  # 使用中から使用中最下行へ		
-# 			if r!=VARS.blackrow:
-# 				addMenuentry("ActionTriggerSeparator", {"SeparatorType": ActionTriggerSeparatorType.LINE})
-# 				commons.cutcopypasteMenuEntries(addMenuentry)
-# 				addMenuentry("ActionTriggerSeparator", {"SeparatorType": ActionTriggerSeparatorType.LINE})
-# 				commons.rowMenuEntries(addMenuentry)		
-# 	elif contextmenuname=="colheader":  # 列ヘッダーの時。
-# 		pass
-# 	elif contextmenuname=="sheettab":  # シートタブの時。
-# 		addMenuentry("ActionTrigger", {"CommandURL": ".uno:Move"})
+	r, c  = celladdress.Row, celladdress.Column  # selectionの行と列のインデックスを取得。	
+	sheet = VARS.sheet
+	if contextmenuname=="cell":  # セルのとき。セル範囲も含む。
+		if VARS.splittedcolumn<=c<VARS.emptycolumn:  # 科目行か補助科目行に値がある列の時。
+			datarows = sheet[VARS.kamokurow:VARS.hojokamokurow+1, c].getDataArray()  # 科目行と補助科目行を取得。
+			kamoku = datarows[0][0]
+			hojokamoku = datarows[1][0]
+			if r==VARS.kamokurow and kamoku:  # 科目行かつ科目行に値があるとき。
+				addMenuentry("ActionTrigger", {"Text": "{}の勘定元帳生成".format(kamoku), "CommandURL": baseurl.format("entry2")}) 
+			elif r==VARS.hojokamokurow and hojokamoku:  # 補助科目行かつ補助科目行に値があるとき。:
+				addMenuentry("ActionTrigger", {"Text": "{}の補助元帳生成".format(hojokamoku), "CommandURL": baseurl.format("entry3")}) 
+			elif VARS.splittedrow<=r<=VARS.emptyrow:  # 取引日列が入力済で科目行か補助科目行に値がある列のセルの時。
+				if sheet[r, VARS.sliptotalcolumn].getValue()!=0:  # 伝票内計が0でない時のみ。空セルも0として扱われる。
+					txt = hojokamoku if hojokamoku else kamoku  # 補助科目行に値がある時は補助科目行、ないときは科目行の値を使う。
+					if txt!="現金":  # 現金列でない時のみ。
+						addMenuentry("ActionTrigger", {"Text": "現金で決済", "CommandURL": baseurl.format("entry4")}) 
+					addMenuentry("ActionTrigger", {"Text": "{}で決済".format(txt), "CommandURL": baseurl.format("entry5")}) 
+		elif c==VARS.tekiyo:  # 摘要列の時。
+			addMenuentry("ActionTrigger", {"Text": "伝票履歴", "CommandURL": baseurl.format("entry6")}) 
+			addMenuentry("ActionTrigger", {"Text": "摘要履歴", "CommandURL": baseurl.format("entry7")}) 
+			addMenuentry("ActionTriggerSeparator", {"SeparatorType": ActionTriggerSeparatorType.LINE})
+			addMenuentry("ActionTrigger", {"Text": "伝票履歴に追加", "CommandURL": baseurl.format("entry8")}) 
+			addMenuentry("ActionTrigger", {"Text": "摘要履歴に追加", "CommandURL": baseurl.format("entry9")}) 
+		addMenuentry("ActionTriggerSeparator", {"SeparatorType": ActionTriggerSeparatorType.LINE})
+		commons.cutcopypasteMenuEntries(addMenuentry)
+		addMenuentry("ActionTriggerSeparator", {"SeparatorType": ActionTriggerSeparatorType.LINE})
+		addMenuentry("ActionTrigger", {"CommandURL": ".uno:PasteSpecial"})		
+		addMenuentry("ActionTriggerSeparator", {"SeparatorType": ActionTriggerSeparatorType.LINE})  # セパレーターを挿入。
+		addMenuentry("ActionTrigger", {"Text": "クリア", "CommandURL": baseurl.format("entry1")}) 	
+	elif contextmenuname=="rowheader" and len(selection[0, :].getColumns())==len(sheet[0, :].getColumns()):  # 行ヘッダーのとき、かつ、選択範囲の列数がシートの列数が一致している時。	
+		if r>=VARS.splittedrow:  # 固定行以下の時のみ。
+			commons.cutcopypasteMenuEntries(addMenuentry)
+			addMenuentry("ActionTriggerSeparator", {"SeparatorType": ActionTriggerSeparatorType.LINE})
+			commons.rowMenuEntries(addMenuentry)		
+	elif contextmenuname=="colheader" and len(selection[:, 0].getRows())==len(sheet[:, 0].getRows()):  # 列ヘッダーの時、かつ、選択範囲の行数がシートの行数が一致している時。	
+		if c>=VARS.splittedcolumn:
+			commons.cutcopypasteMenuEntries(addMenuentry)
+			addMenuentry("ActionTriggerSeparator", {"SeparatorType": ActionTriggerSeparatorType.LINE})		
+			commons.columnMenuEntries(addMenuentry)		
+			if len(selection.getColumns())>1:  # 複数列を選択している時。
+				addMenuentry("ActionTriggerSeparator", {"SeparatorType": ActionTriggerSeparatorType.LINE})		
+				addMenuentry("ActionTrigger", {"CommandURL": ".uno:Group"})	
+				addMenuentry("ActionTrigger", {"CommandURL": ".uno:Ungroup"})	
+	elif contextmenuname=="sheettab":  # シートタブの時。
+		addMenuentry("ActionTrigger", {"CommandURL": ".uno:Move"})
 	return EXECUTE_MODIFIED  # このContextMenuInterceptorでコンテクストメニューのカスタマイズを終わらす。	
 def contextMenuEntries(entrynum, xscriptcontext):  # コンテクストメニュー番号の処理を振り分ける。引数でこれ以上に取得できる情報はない。		
 	controller = xscriptcontext.getDocument().getCurrentController()  # コントローラの取得。
 	selection = controller.getSelection()  # 選択範囲を取得。
 	if entrynum==1:  # クリア。書式設定とオブジェクト以外を消去。
 		selection.clearContents(511)  # 範囲をすべてクリアする。
-	elif 14<entrynum<20:
-		sheet = controller.getActiveSheet()  # アクティブシートを取得。
-		rangeaddress = selection.getRangeAddress()  # 選択範囲のアドレスを取得。
-		if entrynum==15:  # 黒行上から使用中最上行へ
-			commons.toOtherEntry(sheet, rangeaddress, VARS.blackrow, VARS.blackrow+1)
-		elif entrynum==16:  # 黒行上から使用中最下行へ
-			commons.toNewEntry(sheet, rangeaddress, VARS.blackrow, VARS.emptyrow) 
-		elif entrynum==17:  # 黒行上へ
-			commons.toOtherEntry(sheet, rangeaddress, VARS.emptyrow, VARS.blackrow)  
-		elif entrynum==18:  # 使用中から使用中最上行へ 
-			commons.toOtherEntry(sheet, rangeaddress, VARS.emptyrow, VARS.blackrow+1)
-		elif entrynum==19:  # 使用中から使用中最下行へ		
-			commons.toNewEntry(sheet, rangeaddress, VARS.emptyrow, VARS.emptyrow) 		
+	elif entrynum==2:  # 勘定元帳生成
+		pass
+	elif entrynum==3:  # 補助元帳生成
+		pass
+	elif entrynum==4:  # 現金で決済
+		pass
+	elif entrynum==5:  # 決済
+		pass
+	elif entrynum==6:  # 伝票履歴
+		pass
+	elif entrynum==7:  # 摘要履歴
+		pass
+	elif entrynum==8:  # 伝票履歴に追加
+		pass
+	elif entrynum==9:  # 摘要履歴に追加
+		pass
+	
