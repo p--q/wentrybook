@@ -161,10 +161,18 @@ def notifyContextMenuExecute(contextmenuexecuteevent, xscriptcontext):  # 右ク
 						if txt!="現金":  # 現金列でない時のみ。
 							addMenuentry("ActionTrigger", {"Text": "現金で決済", "CommandURL": baseurl.format("entry4")}) 
 						addMenuentry("ActionTrigger", {"Text": "{}で決済".format(txt), "CommandURL": baseurl.format("entry5")}) 
+				addMenuentry("ActionTriggerSeparator", {"SeparatorType": ActionTriggerSeparatorType.LINE})
+				addMenuentry("ActionTrigger", {"CommandURL": ".uno:InsertAnnotation"})	
+				addMenuentry("ActionTrigger", {"CommandURL": ".uno:EditAnnotation"})	
+				addMenuentry("ActionTrigger", {"CommandURL": ".uno:DeleteNote"})	
+				addMenuentry("ActionTrigger", {"CommandURL": ".uno:ShowNote"})			
+				addMenuentry("ActionTrigger", {"CommandURL": ".uno:HideNote"})							
 		elif c==VARS.tekiyo:  # 摘要列の時。
 			addMenuentry("ActionTrigger", {"Text": "伝票履歴", "CommandURL": baseurl.format("entry6")}) 
 			addMenuentry("ActionTriggerSeparator", {"SeparatorType": ActionTriggerSeparatorType.LINE})
 			addMenuentry("ActionTrigger", {"Text": "伝票履歴に追加", "CommandURL": baseurl.format("entry7")}) 
+		elif c==VARS.slipno:  # 伝票番号列の時。
+			addMenuentry("ActionTrigger", {"Text": "空番号取得", "CommandURL": baseurl.format("entry8")}) 
 		addMenuentry("ActionTriggerSeparator", {"SeparatorType": ActionTriggerSeparatorType.LINE})
 		commons.cutcopypasteMenuEntries(addMenuentry)
 		addMenuentry("ActionTriggerSeparator", {"SeparatorType": ActionTriggerSeparatorType.LINE})
@@ -191,6 +199,7 @@ def notifyContextMenuExecute(contextmenuexecuteevent, xscriptcontext):  # 右ク
 def contextMenuEntries(entrynum, xscriptcontext):  # コンテクストメニュー番号の処理を振り分ける。引数でこれ以上に取得できる情報はない。		
 	controller = xscriptcontext.getDocument().getCurrentController()  # コントローラの取得。
 	selection = controller.getSelection()  # 選択範囲を取得。
+	sheet = VARS.sheet
 	if entrynum==1:  # クリア。書式設定とオブジェクト以外を消去。
 		selection.clearContents(511)  # 範囲をすべてクリアする。
 	elif entrynum==2:  # 勘定元帳生成
@@ -204,24 +213,42 @@ def contextMenuEntries(entrynum, xscriptcontext):  # コンテクストメニュ
 	elif entrynum==6:  # 伝票履歴
 		historydialog.createDialog(xscriptcontext, "伝票履歴", callback=callback_sliphistory)
 	elif entrynum==7:  # 伝票履歴に追加
-		datarows = VARS.sheet[VARS.kamokurow:VARS.emptyrow, VARS.tekiyo:VARS.emptycolumn].getDataArray()
-		
+		newgriddatarows = []  # グリッドコントロールに追加する行のリスト。
+		datarows = sheet[:VARS.emptyrow, VARS.tekiyo:VARS.emptycolumn].getDataArray()
 		rangeaddress = selection.getRangeAddress()  # 選択範囲のアドレスを取得。
-		for i in range(rangeaddress.StartRow, rangeaddress.EndRow+1):
-			
-		
-		
-		
-		
+		for i in range(rangeaddress.StartRow, rangeaddress.EndRow+1):  # 行インデックスをイテレート。
+			items = [datarows[i][0]]  # 摘要を取得。
+			for j, val in enumerate(datarows[i][1:], start=1):  # リストのインデックスと値をイテレート。
+				if val!="":  # 空セルでない時。つまり金額が入っている時。
+					hojokamoku = datarows[VARS.hojokamokurow][j]  # 補助科目を取得。
+					annotation = sheet[i, VARS.tekiyo+j].getAnnotation().getString()  # セルコメントを取得。
+					for k in range(j, 0, -1):  # 科目行を左にイテレート。
+						kamoku = datarows[VARS.kamokurow][k]  # 科目を取得。
+						if kamoku:  # 科目が取得できたらfor文を抜ける。
+							break
+					items.append("::".join([kamoku, hojokamoku, str(val), annotation]))
+			newgriddatarows.append(("//".join(items),))
 		doc = xscriptcontext.getDocument()
 		dialogtitle = "伝票履歴"
 		griddatarows = dialogcommons.getSavedData(doc, "GridDatarows_{}".format(dialogtitle))  # グリッドコントロールの行をconfigシートのragenameから取得する。	
 		if griddatarows:  # 行のリストが取得出来た時。
-			griddatarows.append(griddatarow)
+			griddatarows.extend(newgriddatarows)
 		else:
-			griddatarows = griddatarow,
+			griddatarows = newgriddatarows
 		dialogcommons.saveData(doc, "GridDatarows_{}".format(dialogtitle), griddatarows)
-def callback_sliphistory():
+	elif entrynum==8:  # 空番号取得。
+		deadnos = sorted(set(range(1, VARS.emptyrow-VARS.splittedrow+1)).difference(i[0] for i in sheet[VARS.splittedrow:VARS.emptyrow, VARS.slipno].getDataArray()), reverse=True)  # 伝票番号の空き番号を取得して降順にする。
+		selection.setValue(deadnos.pop())  # 空き番号を取得。
+def callback_sliphistory(txt):
+	items = txt.split("//")
 	
-	pass
+	newdatarow = [items[0]]
+	for item in items[1:]:
+		kamoku, hojokamoku, val, annotation = item.split("::")
+		
+	
+	
+	
+	
+	
 	
