@@ -129,7 +129,11 @@ def changesOccurred(changesevent, xscriptcontext):  # Sourceにはドキュメ�
 				datarange[:, VARS.daycolumn].setPropertyValue("NumberFormat", createFormatKey("YYYY-MM-DD"))  # 取引日列の書式を設定。
 				newdatarows = []  # 処理後の行データを取得するリスト。
 				for datarow in datarange.getDataArray():  # 各行をイテレート。
+					
+					# 取引日が入力されていなくてもよいのでは？伝票番号をどうするかが問題。伝票番号は日付がないとだめなことにするか。
+					
 					if datarow[VARS.daycolumn]:  # 取引日列が入力されている時のみ。
+						
 						datarow = list(datarow)
 						datarow[VARS.sliptotalcolumn] = sum(filter(lambda x: isinstance(x, float), datarow[VARS.splittedcolumn:]))  # 行の合計を取得。
 						if not datarow[VARS.slipno]:  # 伝票番号列が空欄の時。
