@@ -67,13 +67,16 @@ def mousePressed(enhancedmouseevent, xscriptcontext):  # マウスボタンを�
 				elif r>=VARS.splittedrow and c==VARS.daycolumn:  # 取引日列インデックスの時。
 					datedialog.createDialog(enhancedmouseevent, xscriptcontext, "取引日", "YYYY-MM-DD")	
 					return False  # セル編集モードにしない。
-	return True  # セル編集モードにする。シングルクリックは必ずTrueを返さないといけない。		
+	return True  # セル編集モードにする。シングルクリックは必ずTrueを返さないといけない。
 def selectionChanged(eventobject, xscriptcontext):  # 矢印キーでセル移動した時も発火する。
 	selection = eventobject.Source.getSelection()	
 	if selection.supportsService("com.sun.star.sheet.SheetCellRange"):  # 選択範囲がセル範囲の時。
 		sheet = selection.getSpreadsheet()
 		VARS.setSheet(sheet)		
 		drowBorders(selection)  # 枠線の作成。
+		
+		
+		
 		splittedrow = VARS.splittedrow
 		slipno = VARS.slipno
 		datarange = sheet[splittedrow:VARS.emptyrow, slipno]
@@ -92,6 +95,10 @@ def selectionChanged(eventobject, xscriptcontext):  # 矢印キーでセル移�
 			cellranges = xscriptcontext.getDocument().createInstance("com.sun.star.sheet.SheetCellRanges")  # com.sun.star.sheet.SheetCellRangesをインスタンス化。
 			cellranges.addRangeAddresses([sheet[i, slipno].getRangeAddress() for i in duperows], False)
 			cellranges.setPropertyValue("CellBackColor", commons.COLORS["silver"])  # 重複伝票番号の背景色を返る。
+
+
+
+
 def drowBorders(selection):  # ターゲットを交点とする行列全体の外枠線を描く。
 	celladdress = selection[0, 0].getCellAddress()  # 選択範囲の左上端のセルアドレスを取得。
 	r = celladdress.Row  # selectionの行と列のインデックスを取得。	
@@ -129,6 +136,10 @@ def changesOccurred(changesevent, xscriptcontext):  # Sourceにはドキュメ�
 							datarow[VARS.slipno] = deadnos.pop()  # 空き番号を取得。
 					newdatarows.append(datarow)
 				datarange.setDataArray(newdatarows)
+				
+				# コメントの再挿入が必要。
+				
+				
 				datarange = sheet[VARS.splittedrow:VARS.emptyrow, rangeaddress.StartColumn:rangeaddress.EndColumn+1]  # 列毎に処理するセル範囲を取得。
 				sheet[VARS.subtotalrow, rangeaddress.StartColumn:rangeaddress.EndColumn+1].setDataArray(([sum(filter(lambda x: isinstance(x, float), i)) for i in zip(*datarange.getDataArray())],))  # 列ごとの合計を取得。
 			datarange = sheet[VARS.splittedrow:VARS.emptyrow, VARS.sliptotalcolumn]  # 伝票内計列のセル範囲を取得。
@@ -168,8 +179,9 @@ def notifyContextMenuExecute(contextmenuexecuteevent, xscriptcontext):  # 右ク
 				addMenuentry("ActionTrigger", {"CommandURL": ".uno:ShowNote"})			
 				addMenuentry("ActionTrigger", {"CommandURL": ".uno:HideNote"})							
 		elif c==VARS.tekiyo:  # 摘要列の時。
-			addMenuentry("ActionTrigger", {"Text": "伝票履歴", "CommandURL": baseurl.format("entry6")}) 
-			addMenuentry("ActionTriggerSeparator", {"SeparatorType": ActionTriggerSeparatorType.LINE})
+			if selection.supportsService("com.sun.star.sheet.SheetCell"):  # 単独セルの時のみ。
+				addMenuentry("ActionTrigger", {"Text": "伝票履歴", "CommandURL": baseurl.format("entry6")}) 
+				addMenuentry("ActionTriggerSeparator", {"SeparatorType": ActionTriggerSeparatorType.LINE})
 			addMenuentry("ActionTrigger", {"Text": "伝票履歴に追加", "CommandURL": baseurl.format("entry7")}) 
 		elif c==VARS.slipno:  # 伝票番号列の時。
 			addMenuentry("ActionTrigger", {"Text": "空番号取得", "CommandURL": baseurl.format("entry8")}) 
@@ -209,9 +221,12 @@ def contextMenuEntries(entrynum, xscriptcontext):  # コンテクストメニュ
 	elif entrynum==4:  # 現金で決済
 		pass
 	elif entrynum==5:  # 決済
+		
+		
+		
 		pass
 	elif entrynum==6:  # 伝票履歴
-		historydialog.createDialog(xscriptcontext, "伝票履歴", callback=callback_sliphistory)
+		historydialog.createDialog(xscriptcontext, "伝票履歴", callback=callback_sliphistoryCreator(xscriptcontext))
 	elif entrynum==7:  # 伝票履歴に追加
 		newgriddatarows = []  # グリッドコントロールに追加する行のリスト。
 		datarows = sheet[:VARS.emptyrow, VARS.tekiyo:VARS.emptycolumn].getDataArray()
@@ -239,16 +254,43 @@ def contextMenuEntries(entrynum, xscriptcontext):  # コンテクストメニュ
 	elif entrynum==8:  # 空番号取得。
 		deadnos = sorted(set(range(1, VARS.emptyrow-VARS.splittedrow+1)).difference(i[0] for i in sheet[VARS.splittedrow:VARS.emptyrow, VARS.slipno].getDataArray()), reverse=True)  # 伝票番号の空き番号を取得して降順にする。
 		selection.setValue(deadnos.pop())  # 空き番号を取得。
-def callback_sliphistory(txt):
-	items = txt.split("//")
-	
-	newdatarow = [items[0]]
-	for item in items[1:]:
-		kamoku, hojokamoku, val, annotation = item.split("::")
+def callback_sliphistoryCreator(xscriptcontext):		
+	def callback_sliphistory(gridcelltxt):
+		sheet = VARS.sheet
+		headerrows = sheet[VARS.kamokurow:VARS.hojokamokurow+1, :VARS.emptycolumn].getDataArray()  # 科目行と補助科目行を取得。
+		controller = xscriptcontext.getDocument().getCurrentController()  # コントローラの取得。
+		selection = controller.getSelection()  # 選択範囲を取得。選択範囲はセルのみ。	
+		r = selection.getCellAddress().Row
+		datarange = sheet[r, :VARS.emptycolumn]  # 代入するセル範囲を取得。
+		datarow = list(datarange.getDataArray()[0])  # 選択行をリストで取得。
+		items = gridcelltxt.split("//")
+		datarow[VARS.tekiyo] = items[0]  # 摘要を取得。
+		comments = []  # コメントのセルとコメントのタプルを取得するリスト。
+		for item in items[1:]:
+			kamoku, hojokamoku, val, annotation = item.split("::")
+			if headerrows[0][VARS.splittedcolumn:].count(kamoku)==1:  # 科目行に該当する科目が１つの時のみ。
+				c = headerrows[0].index(kamoku, VARS.splittedcolumn)  # その科目の列インデックスを取得。
+				if hojokamoku:  # 補助科目がある時。
+					if headerrows[1][c:].count(hojokamoku)==1:  # 補助科目行にその補助科目が１つの時のみ。
+						c = headerrows[1].index(hojokamoku, c)  # その補助科目の列インデックスを取得。
+					else:
+						commons.showErrorMessageBox(controller, "補助科目「{}」の列を同定できません。".format(hojokamoku))
+						return	
+				datarow[c] = float(val)  # セルに入れる数値。
+				if annotation:  # コメントがある時。
+					comments.append((sheet[r, c], annotation))  # setDataArray()でコメントがクリアされるのでここでセルとコメントの文字列をタプルで取得しておく。
+			else:
+				commons.showErrorMessageBox(controller, "科目「{}」の列を同定できません。".format(kamoku))
+				return
 		
-	
-	
-	
-	
-	
-	
+		# 伝票内計と伝票番号を取得する。	
+			
+			
+			
+		datarange.setDataArray((datarow,))
+		annotations = sheet.getAnnotations()  # コメントコレクションを取得。
+		for i in comments:
+			cell, annotation = i
+			annotations.insertNew(cell.getCellAddress(), annotation)  # コメントを挿入。
+			cell.getAnnotation().getAnnotationShape().setPropertyValue("Visible", False)  # これをしないとmousePressed()のTargetにAnnotationShapeが入ってしまう。		
+	return callback_sliphistory	
