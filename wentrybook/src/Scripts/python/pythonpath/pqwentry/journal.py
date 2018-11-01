@@ -60,6 +60,16 @@ def mousePressed(enhancedmouseevent, xscriptcontext):  # マウスボタンを�
 						
 						
 						
+						datarows = VARS.sheet[:VARS.emptyrow, :VARS.emptycolumn].getDataArray()
+						for r in range(VARS.splittedrow, VARS.emptyrow):
+							datarow = datarows[r]
+						
+						
+						
+						newdatarows = [("日付", "借方科目", "借方金額", "貸方科目", "貸方金額", "摘要")]
+						
+						
+						
 						
 						
 						pass
