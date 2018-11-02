@@ -4,7 +4,7 @@
 # import os, unohelper, glob
 # from . import commons, datedialog, points, transientdialog
 from . import commons, datedialog, dialogcommons, historydialog
-from itertools import chain, count
+from itertools import chain, compress, count, zip_longest
 # from com.sun.star.accessibility import AccessibleRole  # 定数
 from com.sun.star.awt import MouseButton  # 定数
 # from com.sun.star.awt import MouseButton, MessageBoxButtons, MessageBoxResults, ScrollBarOrientation # 定数
@@ -57,16 +57,59 @@ def mousePressed(enhancedmouseevent, xscriptcontext):  # マウスボタンを�
 				if r<VARS.splittedrow and c<VARS.splittedcolumn:
 					txt = selection.getString()
 					if txt=="仕訳帳生成":
+						sheet = VARS.sheet
+						datarows = sheet[:VARS.emptyrow, :VARS.emptycolumn].getDataArray()
+						kamokus = []
+						buf = ""
+						for i in datarows[VARS.kamokurow][VARS.splittedcolumn:]:
+							if i:
+								buf = i
+							kamokus.append(buf)
+						headerrows = range(VARS.splittedcolumn, VARS.emptycolumn), kamokus, datarows[VARS.hojokamokurow][VARS.splittedcolumn:]  # 列インデックス行, 科目行、補助科目行。
+						newdatarows = [(datarows[VARS.splittedrow][VARS.daycolumn], "", "", "", "", ""),\
+										("日付", "借方科目", "借方金額", "貸方科目", "貸方金額", "摘要"),\
+										("伝票番号", "借方補助科目", "", "貸方補助科目", "", "")]		
+						datevalue = ""				
+						for i in range(VARS.splittedrow, VARS.emptyrow):  # 伝票行をイテレート。
+							datarow = datarows[i]
+							
+							datevalue = "" if datevalue==datarow[VARS.daycolumn] else datarow[VARS.daycolumn]
+							
+							karikatakamokus = []
+							karikatas = []		
+							karikatatekiyo = []					
+							kashikatakamokus = []
+							kashikatas = []
+							kashikatatekiyo = []
+							for j in compress(zip(*headerrows, datarow[VARS.splittedcolumn:]), datarow[VARS.splittedcolumn:]):  # 空文字や0でないセルが入っている列の要素のみイテレート。
+								annotation = sheet[i, j[0]].getAnnotation().getString()
+								if j[3]>0:  # 金額が正の科目は借方。
+									karikatakamokus.extend(j[1:3])
+									karikatas.extend([j[3], ""])	
+									karikatatekiyo.extend([annotation, ""])		
+								else:  # 金額が負の科目は貸方。
+									kashikatakamokus.extend(j[1:3])
+									kashikatas.extend([-j[3], ""])
+									kashikatatekiyo.extend([annotation, ""])		
+							daycolumns = [datevalue, datarow[VARS.slipnocolumn]]
+							for k in zip_longest(daycolumns, karikatakamokus, karikatas, kashikatakamokus, kashikatas, [datarow[VARS.tekiyocolumn]], karikatatekiyo, kashikatatekiyo, fillvalue=""):
+								newdatarows.append([*k[:-3], "/".join([m for m in k[-3:] if m])])
+						
+						# 罫線のため伝票区切行インデックスを取得取得しておく。。
+						
+						newsheet 
+						
+						
+							
+
+							
+
+							
+							
 						
 						
 						
-						datarows = VARS.sheet[:VARS.emptyrow, :VARS.emptycolumn].getDataArray()
-						for r in range(VARS.splittedrow, VARS.emptyrow):
-							datarow = datarows[r]
-						
-						
-						
-						newdatarows = [("日付", "借方科目", "借方金額", "貸方科目", "貸方金額", "摘要")]
+
 						
 						
 						
