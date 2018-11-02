@@ -70,11 +70,10 @@ def mousePressed(enhancedmouseevent, xscriptcontext):  # マウスボタンを�
 										("日付", "借方科目", "借方金額", "貸方科目", "貸方金額", "摘要"),\
 										("伝票番号", "借方補助科目", "", "貸方補助科目", "", "")]		
 						datevalue = ""				
-						for i in range(VARS.splittedrow, VARS.emptyrow):  # 伝票行をイテレート。
+						for i in range(VARS.splittedrow, VARS.emptyrow):  # 伝票行インデックスをイテレート。
 							datarow = datarows[i]
-							
 							datevalue = "" if datevalue==datarow[VARS.daycolumn] else datarow[VARS.daycolumn]
-							
+							daycolumns = [datevalue, datarow[VARS.slipnocolumn]]
 							karikatakamokus = []
 							karikatas = []		
 							karikatatekiyo = []					
@@ -91,11 +90,10 @@ def mousePressed(enhancedmouseevent, xscriptcontext):  # マウスボタンを�
 									kashikatakamokus.extend(j[1:3])
 									kashikatas.extend([-j[3], ""])
 									kashikatatekiyo.extend([annotation, ""])		
-							daycolumns = [datevalue, datarow[VARS.slipnocolumn]]
 							for k in zip_longest(daycolumns, karikatakamokus, karikatas, kashikatakamokus, kashikatas, [datarow[VARS.tekiyocolumn]], karikatatekiyo, kashikatatekiyo, fillvalue=""):
 								newdatarows.append([*k[:-3], "/".join([m for m in k[-3:] if m])])
 						
-						# 罫線のため伝票区切行インデックスを取得取得しておく。。
+
 						
 						newsheet 
 						
