@@ -12,7 +12,7 @@ def documentOnLoad(xscriptcontext):  # ドキュメントを開いた時。リ�
 # 	for i in namedranges.getElementNames():  # namedrangesをイテレートするとfor文中でnamedrangesを操作してはいけない。
 # 		if not namedranges[i].getReferredCells():
 # 			namedranges.removeByName(i)  # 参照範囲がエラーの名前を削除する。	
-	sheet = sheets["仕訳日誌"]		
+	sheet = sheets["振替伝票"]		
 	doc.getCurrentController().setActiveSheet(sheet)  # 仕訳日誌シートをアクティブにする。	
 	journal.initSheet(sheet, xscriptcontext)
 def documentUnLoad(xscriptcontext):  # ドキュメントを閉じた時。リスナー削除後。

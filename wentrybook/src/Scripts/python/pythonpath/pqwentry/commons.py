@@ -37,7 +37,7 @@ HOLIDAYS = {\
 def getModule(sheetname):  # シート名に応じてモジュールを振り分ける関数。
 	if sheetname is None:  # シート名でNoneが返ってきた時はドキュメントイベントとする。
 		return documentevent
-	elif sheetname=="仕訳日誌":
+	elif sheetname=="振替伝票":
 		return journal
 	return None  # モジュールが見つからなかった時はNoneを返す。
 class TextTransferable(unohelper.Base, XTransferable):

@@ -5,6 +5,7 @@
 # from . import commons, datedialog, points, transientdialog
 from . import commons, datedialog, dialogcommons, historydialog
 from itertools import chain, compress, count, zip_longest
+from datetime import datetime
 # from com.sun.star.accessibility import AccessibleRole  # 定数
 from com.sun.star.awt import MouseButton  # 定数
 # from com.sun.star.awt import MouseButton, MessageBoxButtons, MessageBoxResults, ScrollBarOrientation # 定数
@@ -16,6 +17,9 @@ from com.sun.star.sheet import CellFlags  # 定数
 # from com.sun.star.sheet.CellDeleteMode import ROWS as delete_rows  # enum
 # from com.sun.star.table import BorderLine2  # Struct
 # from com.sun.star.table import BorderLineStyle  # 定数
+from com.sun.star.table import BorderLine2, TableBorder2 # Struct
+from com.sun.star.table import BorderLineStyle  # 定数
+from com.sun.star.table import CellVertJustify2  # 定数
 from com.sun.star.ui import ActionTriggerSeparatorType  # 定数
 from com.sun.star.ui.ContextMenuInterceptorAction import EXECUTE_MODIFIED  # enum
 class Journal():  # シート固有の値。
@@ -45,7 +49,7 @@ VARS = Journal()
 def activeSpreadsheetChanged(activationevent, xscriptcontext):  # シートがアクティブになった時。ドキュメントを開いた時は発火しない。
 	initSheet(activationevent.ActiveSheet, xscriptcontext)
 def initSheet(sheet, xscriptcontext):	
-	sheet["A1:A3"].setDataArray((("仕訳帳生成",), ("総勘定元帳生成",), ("全補助元帳生成",)))  # よく誤入力されるセルを修正する。つまりボタンになっているセルの修正。
+	sheet["A1:A3"].setDataArray((("仕訳日記帳生成",), ("総勘定元帳生成",), ("全補助元帳生成",)))  # よく誤入力されるセルを修正する。つまりボタンになっているセルの修正。
 	sheet["D1"].setDataArray((("次年度繰越",),))
 def mousePressed(enhancedmouseevent, xscriptcontext):  # マウスボタンを押した時。controllerにコンテナウィンドウはない。
 	if enhancedmouseevent.Buttons==MouseButton.LEFT:  # 左クリックの時。
@@ -56,7 +60,7 @@ def mousePressed(enhancedmouseevent, xscriptcontext):  # マウスボタンを�
 				r, c = celladdress.Row, celladdress.Column  # selectionの行と列インデックスを取得。	
 				if r<VARS.splittedrow and c<VARS.splittedcolumn:
 					txt = selection.getString()
-					if txt=="仕訳帳生成":
+					if txt=="仕訳日記帳生成":
 						sheet = VARS.sheet
 						datarows = sheet[:VARS.emptyrow, :VARS.emptycolumn].getDataArray()
 						kamokus = []
@@ -69,8 +73,10 @@ def mousePressed(enhancedmouseevent, xscriptcontext):  # マウスボタンを�
 						newdatarows = [(datarows[VARS.splittedrow][VARS.daycolumn], "", "", "", "", ""),\
 										("日付", "借方科目", "借方金額", "貸方科目", "貸方金額", "摘要"),\
 										("伝票番号", "借方補助科目", "", "貸方補助科目", "", "")]		
-						datevalue = ""				
+						datevalue = ""		
+						datecellrows = []  # 日付書式にする行インデックス。
 						for i in range(VARS.splittedrow, VARS.emptyrow):  # 伝票行インデックスをイテレート。
+							datecellrows.append(len(newdatarows))
 							datarow = datarows[i]
 							datevalue = "" if datevalue==datarow[VARS.daycolumn] else datarow[VARS.daycolumn]
 							daycolumns = [datevalue, datarow[VARS.slipnocolumn]]
@@ -92,28 +98,45 @@ def mousePressed(enhancedmouseevent, xscriptcontext):  # マウスボタンを�
 									kashikatatekiyo.extend([annotation, ""])		
 							for k in zip_longest(daycolumns, karikatakamokus, karikatas, kashikatakamokus, kashikatas, [datarow[VARS.tekiyocolumn]], karikatatekiyo, kashikatatekiyo, fillvalue=""):
 								newdatarows.append([*k[:-3], "/".join([m for m in k[-3:] if m])])
+						newsheetname = "仕訳日記帳{}".format(datetime.now().strftime("%Y%m%d%H%M%S"))
+						doc = xscriptcontext.getDocument()
+						sheets = doc.getSheets()
+						sheets.insertNewByName(newsheetname, len(sheets))
+						newsheet = sheets[newsheetname]
+						newsheet[:len(newdatarows), :len(newdatarows[0])].setDataArray(newdatarows)
+						createFormatKey = commons.formatkeyCreator(doc)
+						newsheet["A1"].setPropertyValue("NumberFormat", createFormatKey("YYYY年"))
+						dataranges = doc.createInstance("com.sun.star.sheet.SheetCellRanges")  # セル範囲コレクション。
+						dataranges.addRangeAddresses((newsheet[i, 0].getRangeAddress() for i in datecellrows), False)  
+						dataranges.setPropertyValue("NumberFormat", createFormatKey("M/D"))
+						dataranges = doc.createInstance("com.sun.star.sheet.SheetCellRanges")  # セル範囲コレクション。
+						dataranges.addRangeAddresses((newsheet[datecellrows[0]:len(newdatarows), i].getRangeAddress() for i in (2, 4)), False)  		
+						dataranges.setPropertyValue("NumberFormat", createFormatKey("#,##0"))
+						for i in (2, 4):
+							newsheet[1:3, i].merge(True)
+							newsheet[1, i].setPropertyValue("VertJustify", CellVertJustify2.CENTER)
+						for i in range(1, len(newdatarows), 2):
+							newsheet[i:i+2, 5].merge(True)
+							newsheet[i, 5].setPropertyValue("VertJustify", CellVertJustify2.CENTER)
+						borderline = BorderLine2(LineWidth=10, Color=commons.COLORS["black"])
+						tableborder2 = TableBorder2(TopLine=borderline, LeftLine=borderline, RightLine=borderline, BottomLine=borderline, IsTopLineValid=True, IsBottomLineValid=True, IsLeftLineValid=True, IsRightLineValid=True)
+						dataranges = doc.createInstance("com.sun.star.sheet.SheetCellRanges")  
+						dataranges.addRangeAddresses((newsheet[1:3, j].getRangeAddress() for i in range(1, len(newdatarows), 2) for j in range(6)), False)  						
+						dataranges.setPropertyValue("TableBorder2", tableborder2)  
 						
+# 						noneline = BorderLine2(LineStyle=BorderLineStyle.NONE)
+# 						tableborder2 = TableBorder2(TopLine=borderline, LeftLine=borderline, RightLine=borderline, BottomLine=borderline, IsTopLineValid=True, IsBottomLineValid=True, IsLeftLineValid=True, IsRightLineValid=True)
 
+# 						dataranges = doc.createInstance("com.sun.star.sheet.SheetCellRanges")  
+# 						dataranges.addRangeAddresses((newsheet[2, i].getRangeAddress() for i in (1, 3)), False)  # なぜかこれらのセルの枠線が正しくひかれていないのでやり直す。				
+# 						dataranges.setPropertyValue("TableBorder2", noneline)  
 						
-						newsheet 
-						
-						
-							
-
-							
-
-							
-							
-						
-						
-						
-
-						
-						
-						
-						
-						
-						pass
+# 						for i in datecellrows:
+# 							newsheet[:i, 0]
+					
+					
+					
+					
 					
 					elif txt=="総勘定元帳生成":
 						
