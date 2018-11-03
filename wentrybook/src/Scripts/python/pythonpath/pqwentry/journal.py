@@ -5,7 +5,6 @@ from . import commons, datedialog, dialogcommons, historydialog
 import unohelper, os
 from itertools import chain, compress, count, zip_longest
 from datetime import datetime
-# from com.sun.star.awt import MouseButton, MessageBoxButtons, MessageBoxResults, ScrollBarOrientation # 定数
 from com.sun.star.awt import MouseButton, MessageBoxButtons, MessageBoxResults  # 定数
 from com.sun.star.awt.MessageBoxType import QUERYBOX  # enum
 from com.sun.star.sheet import CellFlags  # 定数
@@ -73,43 +72,88 @@ def mousePressed(enhancedmouseevent, xscriptcontext):  # マウスボタンを�
 					return False  # セル編集モードにしない。
 	return True  # セル編集モードにする。シングルクリックは必ずTrueを返さないといけない。
 def createJournalDayBook(xscriptcontext):
-	
-	
-	
+	newsheetname = "仕訳日記帳"
+	kamokucolumnidxes = 1, 3  # 科目列インデックスのタプル。
+	kingakucolumnidxes = 2, 4  # 金額の列インデックスのタプル。
+	tekiyocolumnidxes = 5  # 摘要列インデックス。	
+	datewidth = 1500  # 日付列幅。1/100mm。
+	kamokuwidth = 3500  # 科目列幅。
+	kingakuwidth = 2500  # 科目金額列幅。	
 	sheet = VARS.sheet
 	doc = xscriptcontext.getDocument()
-	
-	
-	searchdescriptor = sheet.createSearchDescriptor()
-	searchdescriptor.setPropertyValue("SearchRegularExpression", True)  # 正規表現を有効にする。
-	searchdescriptor.setSearchString("[^0]")  # 0以外のセルを取得。戻り値はない。	
-	cellranges = sheet[VARS.splittedrow:VARS.emptyrow, VARS.sliptotalcolumn].queryContentCells(CellFlags.VALUE).findAll(searchdescriptor)  # 値のあるセルから0以外が入っているセル範囲コレクションを取得。見つからなかった時はNoneが返る。
-	if cellranges:
-		commons.showErrorMessageBox(doc.getCurrentController(), "貸方と借方が一致しない行があります。")
-		return			
-	
-	
-	datarows = sheet[:VARS.emptyrow, :VARS.emptycolumn].getDataArray()
-	kamokus = []
-	buf = ""
-	for i in datarows[VARS.kamokurow][VARS.splittedcolumn:]:
-		if i:
-			buf = i
-		kamokus.append(buf)  # 科目行をすべて埋める。
-	headerrows = range(VARS.splittedcolumn, VARS.emptycolumn), kamokus, datarows[VARS.hojokamokurow][VARS.splittedcolumn:]  # 列インデックス行, 科目行、補助科目行。
-
-
-
+	if not verifySlips(doc):
+		return  # すべての伝票行の借方と貸方が一致していることを確認する。
+	datarows = sheet[:VARS.emptyrow, :VARS.emptycolumn].getDataArray()  # データ範囲をすべて取得。
+	headerrows = createHeaderRows(datarows)  # 列インデックス行, 科目行、補助科目行。
 	newdatarows = [(datarows[VARS.splittedrow][VARS.daycolumn], "", "", "", "", ""),\
-					("日付", "借方科目", "借方金額", "貸方科目", "貸方金額", "摘要"),\
-					("伝票番号", "借方補助科目", "", "貸方補助科目", "", "")]		
-	
-	datevalue = ""		
+				("日付", "借方科目", "借方金額", "貸方科目", "貸方金額", "摘要"),\
+				("伝票番号", "借方補助科目", "", "貸方補助科目", "", "")	]
 	slipstartrows = []  # 伝票開始行インデックスのリスト。
-	
+	createDataColumns = createDataColumnsCreator(slipstartrows, datarows, headerrows)
 	for i in range(VARS.splittedrow, VARS.emptyrow):  # 伝票行インデックスをイテレート。
-		
-		
+		daycolumns, karikatakamokus, karikatas, kashikatakamokus, kashikatas, tekiyo, karikatatekiyo, kashikatatekiyo = createDataColumns(newdatarows, i)	
+		for k in zip_longest(daycolumns, karikatakamokus, karikatas, kashikatakamokus, kashikatas, tekiyo, karikatatekiyo, kashikatatekiyo, fillvalue=""):  # 各列を1要素ずつイテレートして1行にする。
+			newdatarows.append([*k[:-3], "/".join([m for m in k[-3:] if m])])  # 摘要は/で結合する。
+	slipstartrows.append(len(newdatarows))  # 最終行下の行インデックスを取得。
+	newsheet = createNewSheet(doc, newsheetname, newdatarows, slipstartrows, kamokucolumnidxes, kingakucolumnidxes, tekiyocolumnidxes)	
+	columns = newsheet.getColumns()  # 列アクセスオブジェクト。
+	for i, j in chain(zip(kamokucolumnidxes, (kamokuwidth,)*len(kamokucolumnidxes)), zip(kingakucolumnidxes, (kingakuwidth,)*len(kingakucolumnidxes))):
+		columns[i].setPropertyValue("Width", j)  # 列幅を設定。
+	width, leftmargin, rightmargin = doc.getStyleFamilies()["PageStyles"]["Default"].getPropertyValues(("Width", "LeftMargin", "RightMargin"))
+	pagewidth = width - leftmargin - rightmargin  # 印刷幅を1/100mmで取得。
+	columns[0].setPropertyValue("Width", datewidth)  # 日付列幅を設定。
+	columns[tekiyocolumnidxes].setPropertyValue("Width", pagewidth-datewidth-2*(kamokuwidth+kingakuwidth))  # 摘要列幅を設定。残った幅をすべて割り当てる。
+	detachSheet(xscriptcontext, newsheetname, "{}{}.ods".format(newsheetname, datetime.now().strftime("%Y%m%d%H%M%S")))  # シートをファイルに切り出す。
+def createNewSheet(doc, newsheetname, newdatarows, slipstartrows, kamokucolumnidxes, kingakucolumnidxes, tekiyocolumnidxes):	
+	columncount = len(newdatarows[0])
+	sheets = doc.getSheets()
+	if newsheetname in sheets:  # すでに同名シートがある時は削除する。
+		del sheets[newsheetname]
+	sheets.insertNewByName(newsheetname, len(sheets))
+	newsheet = sheets[newsheetname]
+	newsheet[:len(newdatarows), :len(newdatarows[0])].setDataArray(newdatarows)
+	createFormatKey = commons.formatkeyCreator(doc)
+	newsheet[0, 0].setPropertyValue("NumberFormat", createFormatKey("YYYY年"))  # 年表示セル。
+	newsheet[0, :2].merge(True)  # 年表示セル。
+	newsheet[0, 0].setPropertyValue("HoriJustify", LEFT)  # 年表示セルを左寄せ。	
+	cellranges = doc.createInstance("com.sun.star.sheet.SheetCellRanges")  # セル範囲コレクション。
+	cellranges.addRangeAddresses((newsheet[i, 0].getRangeAddress() for i in slipstartrows), False)  
+	cellranges.setPropertyValues(("HoriJustify", "NumberFormat"), (LEFT, createFormatKey("M/D")))  # 日付書式設定。
+	cellranges = doc.createInstance("com.sun.star.sheet.SheetCellRanges")  # セル範囲コレクション。
+	cellranges.addRangeAddresses((newsheet[slipstartrows[0]:len(newdatarows), i].getRangeAddress() for i in kingakucolumnidxes), False)  # 金額列の書式設定。
+	cellranges.setPropertyValue("NumberFormat", createFormatKey("#,##0"))
+	for i in kingakucolumnidxes:  # 貸方金額と借方金額のヘッダー行。
+		newsheet[1:3, i].merge(True)
+		newsheet[1, i].setPropertyValue("VertJustify", CellVertJustify2.CENTER)
+	rangeaddresses = []
+	for i in range(1, len(newdatarows), 2):
+		newsheet[i:i+2, tekiyocolumnidxes].merge(True)  # 摘要列について。
+		rangeaddresses.append(newsheet[i, tekiyocolumnidxes].getRangeAddress())
+	cellranges = doc.createInstance("com.sun.star.sheet.SheetCellRanges") 
+	cellranges.addRangeAddresses(rangeaddresses, False)				
+	cellranges.setPropertyValues(("VertJustify", "IsTextWrapped"), (CellVertJustify2.CENTER, True))  # 摘要列を上下中央に、折り返し有効。
+	newsheet[2:, tekiyocolumnidxes].getRows().setPropertyValue("OptimalHeight", True)  # 内容を折り返した後の行の高さを調整。
+	borderline = BorderLine2(LineWidth=10, Color=commons.COLORS["black"])
+	noneline = BorderLine2(LineStyle=BorderLineStyle.NONE)
+	tableborder2 = TableBorder2(TopLine=borderline, LeftLine=borderline, RightLine=borderline, BottomLine=borderline, IsTopLineValid=True, IsBottomLineValid=True, IsLeftLineValid=True, IsRightLineValid=True)
+	nonetableborder2 = TableBorder2(TopLine=noneline, LeftLine=noneline, RightLine=noneline, BottomLine=noneline, IsTopLineValid=True, IsBottomLineValid=True, IsLeftLineValid=True, IsRightLineValid=True)
+	cellranges = doc.createInstance("com.sun.star.sheet.SheetCellRanges")  
+	cellranges.addRangeAddresses((newsheet[i:i+2, j].getRangeAddress() for i in range(3, len(newdatarows), 2) for j in range(1, columncount)), False)  # 1行目だけなぜか真ん中の罫線が引かれてしまう。 						
+	cellranges.setPropertyValue("TableBorder2", tableborder2)  
+	cellranges = doc.createInstance("com.sun.star.sheet.SheetCellRanges") 
+	cellranges.addRangeAddresses((newsheet[i, j].getRangeAddress() for i in (3, 4) for j in kamokucolumnidxes), False)  # 1行目の勝手に引かれた罫線を消す。					
+	cellranges.setPropertyValue("TableBorder2", nonetableborder2)  
+	cellranges = doc.createInstance("com.sun.star.sheet.SheetCellRanges")  
+	cellranges.addRangeAddresses((newsheet[1:3, j].getRangeAddress() for j in range(columncount)), False)  # 1行目の罫線を引き直す。				
+	cellranges.setPropertyValue("TableBorder2", tableborder2)  						
+	cellranges = doc.createInstance("com.sun.star.sheet.SheetCellRanges")  
+	cellranges.addRangeAddresses((newsheet[i:j, 0].getRangeAddress() for i, j in zip(slipstartrows[:-1], slipstartrows[1:])), False)  # 1列目の罫線を伝票区切りで引く。				
+	cellranges.setPropertyValue("TableBorder2", tableborder2)  		
+	return newsheet
+def createDataColumnsCreator(slipstartrows, datarows, headerrows):
+	datevalue = ""
+	def createDataColumns(newdatarows, i):
+		nonlocal datevalue
 		slipstartrows.append(len(newdatarows))  # 伝票開始行インデックスを取得。
 		datarow = datarows[i]
 		datevalue = "" if datevalue==datarow[VARS.daycolumn] else datarow[VARS.daycolumn]  # 前の伝票と日付が異なる時のみ日付を表示する。
@@ -121,7 +165,7 @@ def createJournalDayBook(xscriptcontext):
 		kashikatas = []  # 貸方金額列のデータのリスト。		
 		kashikatatekiyo = []  # 貸方摘要列のデータのリスト。		
 		for j in compress(zip(*headerrows, datarow[VARS.splittedcolumn:]), datarow[VARS.splittedcolumn:]):  # 空文字や0でないセルが入っている列の要素のみイテレート。
-			annotation = sheet[i, j[0]].getAnnotation().getString()
+			annotation = VARS.sheet[i, j[0]].getAnnotation().getString()
 			if j[3]>0:  # 金額が正の科目は借方。
 				karikatakamokus.extend(j[1:3])
 				karikatas.extend([j[3], ""])	
@@ -129,66 +173,26 @@ def createJournalDayBook(xscriptcontext):
 			else:  # 金額が負の科目は貸方。
 				kashikatakamokus.extend(j[1:3])
 				kashikatas.extend([-j[3], ""])
-				kashikatatekiyo.extend([annotation, ""])		
-				
-		for k in zip_longest(daycolumns, karikatakamokus, karikatas, kashikatakamokus, kashikatas, [datarow[VARS.tekiyocolumn]], karikatatekiyo, kashikatatekiyo, fillvalue=""):  # 各列を1要素ずつイテレートして1行にする。
-			newdatarows.append([*k[:-3], "/".join([m for m in k[-3:] if m])])  # 摘要は/で結合する。
-			
-			
-	slipstartrows.append(len(newdatarows))  # 最終行下の行インデックスを取得。
-	newsheetname = "仕訳日記帳"
-	sheets = doc.getSheets()
-	sheets.insertNewByName(newsheetname, len(sheets))
-	newsheet = sheets[newsheetname]
-	newsheet[:len(newdatarows), :len(newdatarows[0])].setDataArray(newdatarows)
-	createFormatKey = commons.formatkeyCreator(doc)
-	newsheet["A1"].setPropertyValue("NumberFormat", createFormatKey("YYYY年"))
-	cellranges = doc.createInstance("com.sun.star.sheet.SheetCellRanges")  # セル範囲コレクション。
-	cellranges.addRangeAddresses((newsheet[i, 0].getRangeAddress() for i in slipstartrows), False)  
-	cellranges.setPropertyValues(("HoriJustify", "NumberFormat"), (LEFT, createFormatKey("M/D")))
-	cellranges = doc.createInstance("com.sun.star.sheet.SheetCellRanges")  # セル範囲コレクション。
-	cellranges.addRangeAddresses((newsheet[slipstartrows[0]:len(newdatarows), i].getRangeAddress() for i in (2, 4)), False)  		
-	cellranges.setPropertyValue("NumberFormat", createFormatKey("#,##0"))
-	newsheet[0, :2].merge(True)  # 年表示セル。
-	newsheet[0, 0].setPropertyValue("HoriJustify", LEFT)  # 年表示セルを左寄せ。
-	for i in (2, 4):  # 貸方金額と借方金額のヘッダー行。
-		newsheet[1:3, i].merge(True)
-		newsheet[1, i].setPropertyValue("VertJustify", CellVertJustify2.CENTER)
-	rangeaddresses = []
-	for i in range(1, len(newdatarows), 2):
-		newsheet[i:i+2, 5].merge(True)  # 摘要列について。
-		rangeaddresses.append(newsheet[i, 5].getRangeAddress())
-	cellranges = doc.createInstance("com.sun.star.sheet.SheetCellRanges") 
-	cellranges.addRangeAddresses(rangeaddresses, False)				
-	cellranges.setPropertyValues(("VertJustify", "IsTextWrapped"), (CellVertJustify2.CENTER, True))  # 摘要列を上下中央に、折り返し有効。
-	newsheet[2:, 5].getRows().setPropertyValue("OptimalHeight", True)  # 内容を折り返した後の行の高さを調整。
-	borderline = BorderLine2(LineWidth=10, Color=commons.COLORS["black"])
-	noneline = BorderLine2(LineStyle=BorderLineStyle.NONE)
-	tableborder2 = TableBorder2(TopLine=borderline, LeftLine=borderline, RightLine=borderline, BottomLine=borderline, IsTopLineValid=True, IsBottomLineValid=True, IsLeftLineValid=True, IsRightLineValid=True)
-	nonetableborder2 = TableBorder2(TopLine=noneline, LeftLine=noneline, RightLine=noneline, BottomLine=noneline, IsTopLineValid=True, IsBottomLineValid=True, IsLeftLineValid=True, IsRightLineValid=True)
-	cellranges = doc.createInstance("com.sun.star.sheet.SheetCellRanges")  
-	cellranges.addRangeAddresses((newsheet[i:i+2, j].getRangeAddress() for i in range(3, len(newdatarows), 2) for j in range(1, 6)), False)  # 1行目だけなぜか真ん中の罫線が引かれてしまう。 						
-	cellranges.setPropertyValue("TableBorder2", tableborder2)  
-	cellranges = doc.createInstance("com.sun.star.sheet.SheetCellRanges") 
-	cellranges.addRangeAddresses((newsheet[i, j].getRangeAddress() for i in (3, 4) for j in (1, 3)), False)  # 1行目の勝手に引かれた罫線を消す。					
-	cellranges.setPropertyValue("TableBorder2", nonetableborder2)  
-	cellranges = doc.createInstance("com.sun.star.sheet.SheetCellRanges")  
-	cellranges.addRangeAddresses((newsheet[1:3, j].getRangeAddress() for j in range(6)), False)  # 1行目の罫線を引き直す。				
-	cellranges.setPropertyValue("TableBorder2", tableborder2)  						
-	cellranges = doc.createInstance("com.sun.star.sheet.SheetCellRanges")  
-	cellranges.addRangeAddresses((newsheet[i:j, 0].getRangeAddress() for i, j in zip(slipstartrows[:-1], slipstartrows[1:])), False)  # 1列目の罫線を伝票区切りで引く。				
-	cellranges.setPropertyValue("TableBorder2", tableborder2)  						
-	width, leftmargin, rightmargin = doc.getStyleFamilies()["PageStyles"]["Default"].getPropertyValues(("Width", "LeftMargin", "RightMargin"))
-	pagewidth = width - leftmargin - rightmargin  # 印刷幅を1/100mmで取得。
-	
-	
-	datewidth = 1500  # 日付列幅。
-	kamokuwidth = 3500  # 科目列幅。
-	kingakuwidth = 2500  # 科目金額列幅。
-	columns = newsheet.getColumns()  # 列アクセスオブジェクト。
-	for i, j in ((0, datewidth), (1, kamokuwidth), (2, kingakuwidth), (3, kamokuwidth), (4, kingakuwidth), (5, pagewidth-datewidth-2*(kamokuwidth+kingakuwidth))):  # 1/100mm。
-		columns[i].setPropertyValue("Width", j)  # 列幅を設定。
-	detachSheet(xscriptcontext, newsheetname, "仕訳日記帳{}.ods".format(datetime.now().strftime("%Y%m%d%H%M%S")))  # シートをファイルに切り出す。
+				kashikatatekiyo.extend([annotation, ""])	
+		return daycolumns, karikatakamokus, karikatas, kashikatakamokus, kashikatas, [datarow[VARS.tekiyocolumn]], karikatatekiyo, kashikatatekiyo
+	return createDataColumns
+def createHeaderRows(datarows):  # 科目行の空セルをすべて埋めたあと、列インデックス行, 科目行、補助科目行、を返す。
+	kamokus = []
+	buf = ""
+	for i in datarows[VARS.kamokurow][VARS.splittedcolumn:]:
+		if i:
+			buf = i
+		kamokus.append(buf)  # 科目行をすべて埋める。
+	return range(VARS.splittedcolumn, VARS.emptycolumn), kamokus, datarows[VARS.hojokamokurow][VARS.splittedcolumn:]  # 列インデックス行, 科目行、補助科目行。
+def verifySlips(doc):  # すべての伝票行の借方と貸方が一致していることを確認する。
+	searchdescriptor = VARS.sheet.createSearchDescriptor()
+	searchdescriptor.setPropertyValue("SearchRegularExpression", True)  # 正規表現を有効にする。
+	searchdescriptor.setSearchString("[^0]")  # 0以外のセルを取得。戻り値はない。	
+	cellranges = VARS.sheet[VARS.splittedrow:VARS.emptyrow, VARS.sliptotalcolumn].queryContentCells(CellFlags.VALUE).findAll(searchdescriptor)  # 値のあるセルから0以外が入っているセル範囲コレクションを取得。見つからなかった時はNoneが返る。
+	if cellranges:
+		commons.showErrorMessageBox(doc.getCurrentController(), "貸方と借方が一致しない行があります。")	
+		return False
+	return True
 def selectionChanged(eventobject, xscriptcontext):  # 矢印キーでセル移動した時も発火する。
 	selection = eventobject.Source.getSelection()	
 	if selection.supportsService("com.sun.star.sheet.SheetCellRange"):  # 選択範囲がセル範囲の時。
