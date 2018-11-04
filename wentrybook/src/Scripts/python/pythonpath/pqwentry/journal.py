@@ -7,6 +7,7 @@ from itertools import chain, compress, count, zip_longest
 from datetime import datetime
 from com.sun.star.awt import MouseButton, MessageBoxButtons, MessageBoxResults  # 定数
 from com.sun.star.awt.MessageBoxType import QUERYBOX  # enum
+from com.sun.star.beans import PropertyValue  # Struct
 from com.sun.star.sheet import CellFlags  # 定数
 from com.sun.star.table import BorderLine2, TableBorder2 # Struct
 from com.sun.star.table import BorderLineStyle, CellVertJustify2  # 定数
@@ -52,19 +53,27 @@ def mousePressed(enhancedmouseevent, xscriptcontext):  # マウスボタンを�
 				if r<VARS.splittedrow and c<VARS.splittedcolumn:
 					txt = selection.getString()
 					if txt=="仕訳日記帳生成":
-						
-						# 日付順にソート
-						
-						
+						sortSlips(xscriptcontext)  # 伝票を日付順にソート。
 						createJournalDayBook(xscriptcontext)
 					elif txt=="総勘定元帳生成":
 						
 						pass
 					elif txt=="全補助元帳生成":
+						sortSlips(xscriptcontext)  # 伝票を日付順にソート。
+						filename = "{}_{}.ods".format("全補助元帳", datetime.now().strftime("%Y%m%d%H%M%S"))
+						
+						
+						for i in range(VARS.splittedcolumn, VARS.emptycolumn):
+# 							newsheetname = generateSubsidiaryLedger(xscriptcontext, i)
+# 							if newsheetname:
+# 								
+# 								# ファイルがすでにあるのならシートの追加にする。
+# 								
+# 								detachSheet(xscriptcontext, newsheetname, "{}_{}.ods".format(newsheetname, datetime.now().strftime("%Y%m%d%H%M%S")))  # シートをファイルに切り出す。	
 						
 						
 						
-						pass
+							pass
 					elif txt=="次年度繰越":
 						
 						
@@ -75,9 +84,15 @@ def mousePressed(enhancedmouseevent, xscriptcontext):  # マウスボタンを�
 					datedialog.createDialog(enhancedmouseevent, xscriptcontext, "取引日", "YYYY-MM-DD")	
 					return False  # セル編集モードにしない。
 	return True  # セル編集モードにする。シングルクリックは必ずTrueを返さないといけない。
-
-
-
+def sortSlips(xscriptcontext):  # 伝票を日付順にソート。
+	ctx = xscriptcontext.getComponentContext()  # コンポーネントコンテクストの取得。
+	smgr = ctx.getServiceManager()  # サービスマネージャーの取得。
+	controller = xscriptcontext.getDocument().getCurrentController()	
+	controller.select(VARS.sheet[VARS.splittedrow:, :])  # ソートするセル範囲を選択。
+	props = PropertyValue(Name="Col1", Value=VARS.daycolumn+1),  # Col1の番号は優先順位。Valueはインデックス+1。 
+	dispatcher = smgr.createInstanceWithContext("com.sun.star.frame.DispatchHelper", ctx)
+	dispatcher.executeDispatch(controller.getFrame(), ".uno:DataSort", "", 0, props)  # ディスパッチコマンドでソート。
+	controller.select(VARS.sheet["A1"])
 def generateSubsidiaryLedger(xscriptcontext, kamokuidx):  # 補助元帳作成。
 	kamokucolumnidxes = 1,  # 科目列インデックスのタプル。
 	kingakucolumnidxes = 3, 4, 5  # 金額の列インデックスのタプル。
@@ -91,9 +106,7 @@ def generateSubsidiaryLedger(xscriptcontext, kamokuidx):  # 補助元帳作成�
 		return  # すべての伝票行の借方と貸方が一致していることを確認する。
 	datarows = sheet[:VARS.emptyrow, :VARS.emptycolumn].getDataArray()  # データ範囲をすべて取得。
 	headerrows = createHeaderRows(datarows)  # 列インデックス行, 科目行、補助科目行。
-	
 	newsheetname = "_".join([i for i in (headerrows[1][kamokuidx-VARS.splittedcolumn], headerrows[2][kamokuidx-VARS.splittedcolumn]) if i])
-	
 	newdatarows = [(datarows[VARS.splittedrow][VARS.daycolumn], "", "", "", "", ""),\
 				("日付", "相手勘定科目", "摘要", "借方金額", "貸方金額", "残高"),\
 				("伝票番号", "相手補助科目", "", "", "", "")]
@@ -105,7 +118,6 @@ def generateSubsidiaryLedger(xscriptcontext, kamokuidx):  # 補助元帳作成�
 			for k in zip_longest(daycolumns, aitekamokus, tekiyos, karikatas, kashikatas, zandakas, fillvalue=""):  # 各列を1要素ずつイテレートして1行にする。
 				newdatarows.append(k)
 	slipstartrows.append(len(newdatarows))  # 最終行下の行インデックスを取得。
-	
 	newsheet = createNewSheet(doc, newsheetname, newdatarows, slipstartrows, kamokucolumnidxes, kingakucolumnidxes, tekiyocolumnidxes)	
 	if newsheet:
 		columns = newsheet.getColumns()  # 列アクセスオブジェクト。
@@ -115,7 +127,7 @@ def generateSubsidiaryLedger(xscriptcontext, kamokuidx):  # 補助元帳作成�
 		pagewidth = width - leftmargin - rightmargin  # 印刷幅を1/100mmで取得。
 		columns[0].setPropertyValue("Width", datewidth)  # 日付列幅を設定。
 		columns[tekiyocolumnidxes].setPropertyValue("Width", pagewidth-datewidth-kamokuwidth*len(kamokucolumnidxes)-kingakuwidth*len(kingakucolumnidxes))  # 摘要列幅を設定。残った幅をすべて割り当てる。
-		detachSheet(xscriptcontext, newsheetname, "{}_{}.ods".format(newsheetname, datetime.now().strftime("%Y%m%d%H%M%S")))  # シートをファイルに切り出す。	
+		return newsheetname
 def createDataColumns2Creator(slipstartrows, datarows, headerrows, kamokuidx):
 	datevalue = ""
 	zandaka = 0
@@ -421,7 +433,10 @@ def contextMenuEntries(entrynum, xscriptcontext):  # コンテクストメニュ
 		
 		pass
 	elif entrynum==3:  # 補助元帳生成
-		generateSubsidiaryLedger(xscriptcontext, selection.getCellAddress().Column)
+		sortSlips(xscriptcontext)  # 伝票を日付順にソート。
+		newsheetname = generateSubsidiaryLedger(xscriptcontext, selection.getCellAddress().Column)
+		if newsheetname:
+			detachSheet(xscriptcontext, newsheetname, "{}_{}.ods".format(newsheetname, datetime.now().strftime("%Y%m%d%H%M%S")))  # シートをファイルに切り出す。	
 	elif entrynum==4:  # 現金で決済
 		datarow = sheet[VARS.kamokurow, :VARS.emptycolumn].getDataArray()[0]
 		settle(sheet[selection.getCellAddress().Row, datarow.index("現金", VARS.splittedcolumn)])

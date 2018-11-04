@@ -1,5 +1,6 @@
 #!/opt/libreoffice5.4/program/python
 # -*- coding: utf-8 -*-
+# プレビュー画面で実行してはいけない。
 import unohelper  # オートメーションには必須(必須なのはuno)。
 import glob
 import os, sys
