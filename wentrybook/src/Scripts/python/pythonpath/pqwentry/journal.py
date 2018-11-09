@@ -148,6 +148,7 @@ def mousePressed(enhancedmouseevent, xscriptcontext):  # マウスボタンを�
 						return saveNewDoc(doc, newdoc, newdocname)				
 					elif txt=="次年度繰越":
 						
+						# シート名に年度をつける。
 						# シートに年度がついていればその次にする。年度がなければ今年の年度をつける。
 						
 						pass
