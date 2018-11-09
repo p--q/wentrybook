@@ -72,7 +72,9 @@ def mousePressed(enhancedmouseevent, xscriptcontext):  # マウスボタンを�
 						ctx = xscriptcontext.getComponentContext()  # コンポーネントコンテクストの取得。
 						smgr = ctx.getServiceManager()  # サービスマネージャーの取得。
 						doc = xscriptcontext.getDocument()
-						controller = xscriptcontext.getDocument().getCurrentController()	
+						controller = doc.getCurrentController()	
+						indicator = controller.getStatusIndicator() 
+						indicator.start("{}中".format(txt), 0)  # 新規ドキュメントを作成後はステータスバーを表示できない。
 						controller.select(sheet[splittedrow:, :])  # ソートするセル範囲を選択。
 						props = PropertyValue(Name="Col1", Value=daycolumn+1),  # Col1の番号は優先順位。Valueはインデックス+1。 
 						dispatcher = smgr.createInstanceWithContext("com.sun.star.frame.DispatchHelper", ctx)
@@ -94,13 +96,13 @@ def mousePressed(enhancedmouseevent, xscriptcontext):  # マウスボタンを�
 						borderline = BorderLine2(LineWidth=10, Color=commons.COLORS["black"])
 						tableborder2 = TableBorder2(TopLine=borderline, LeftLine=borderline, RightLine=borderline, BottomLine=borderline, IsTopLineValid=True, IsBottomLineValid=True, IsLeftLineValid=True, IsRightLineValid=True)	
 						width, leftmargin, rightmargin = newdoc.getStyleFamilies()["PageStyles"]["Default"].getPropertyValues(("Width", "LeftMargin", "RightMargin"))
-						pagewidth = width - leftmargin - rightmargin  # 印刷幅を1/100mmで取得。				
+						pagewidth = width - leftmargin - rightmargin  # 印刷幅を1/100mmで取得。	
 						for kozakamokuname in compress(*(datarows[VARS.kamokurow][splittedcolumn:],)*2):  # 口座科目名をイテレート。科目行の空セルでない値のみイテレート。
 							kozacolumns = []  # 口座科目の列インデックスのリスト。
 							i = 0
 							while kozakamokuname in headerrows[1][i:]:
 								i = headerrows[1].index(kozakamokuname, i)
-								kozacolumns.append(headerrows[0][i])
+								kozacolumns.append(headerrows[0][i])  # 補助科目の列インデックスを取得。
 								i += 1
 							newdatarows = [(kozakamokuname, "", "", "", "", ""),\
 										(datarows[splittedrow][daycolumn], "", "", "", "", ""),\
@@ -176,7 +178,9 @@ def mousePressed(enhancedmouseevent, xscriptcontext):  # マウスボタンを�
 							for i, j in chain(zip(newkamokucolumnidxes, (newkamokuwidth,)*len(newkamokucolumnidxes)), zip(newkingakucolumns, (newkingakuwidth,)*len(newkingakucolumns))):
 								columns[i].setPropertyValue("Width", j)  # 列幅を設定。
 							columns[0].setPropertyValue("Width", newdatewidth)  # 日付列幅を設定。
-							columns[newtekiyocolumn].setPropertyValue("Width", pagewidth-newdatewidth-newkamokuwidth*len(newkamokucolumnidxes)-newkingakuwidth*len(newkingakucolumns))  # 摘要列幅を設定。残った幅をすべて割り当てる。						
+							columns[newtekiyocolumn].setPropertyValue("Width", pagewidth-newdatewidth-newkamokuwidth*len(newkamokucolumnidxes)-newkingakuwidth*len(newkingakucolumns))  # 摘要列幅を設定。残った幅をすべて割り当てる。	
+						indicator.end()  # reset()の前にend()しておかないと元に戻らない。
+						indicator.reset()  # ここでリセットしておかないと例外が発生した時にリセットする機会がない。							
 						newdocname = "総勘定元帳_{}.ods".format(datetime.now().strftime("%Y%m%d%H%M%S"))
 						del newsheets["Sheet1"]  # 新規ドキュメントのデフォルトシートを削除する。 
 						dirpath = os.path.dirname(unohelper.fileUrlToSystemPath(doc.getURL()))  # このドキュメントのあるディレクトリのフルパスを取得。
