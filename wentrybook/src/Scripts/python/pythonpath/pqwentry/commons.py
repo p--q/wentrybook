@@ -1,57 +1,22 @@
 #!/opt/libreoffice5.4/program/python
 # -*- coding: utf-8 -*-
-import os, unohelper
+import os
 from pqwentry import documentevent, journal  # Contextmenuの呼び出しは相対インポートではエラーになる。
 from com.sun.star.awt import MessageBoxButtons  # 定数
 from com.sun.star.awt.MessageBoxType import ERRORBOX  # enum
-from com.sun.star.datatransfer import XTransferable
-from com.sun.star.datatransfer import DataFlavor  # Struct
-from com.sun.star.datatransfer import UnsupportedFlavorException  # 例外
-from com.sun.star.i18n.TransliterationModulesNew import HALFWIDTH_FULLWIDTH  # enum
-from com.sun.star.lang import Locale  # Struct
-from com.sun.star.sheet.CellDeleteMode import ROWS as delete_rows  # enum
-from com.sun.star.sheet.CellInsertMode import ROWS as insert_rows  # enum
 from com.sun.star.table import BorderLine2, TableBorder2 # Struct
+from com.sun.star.lang import Locale  # Struct
 from com.sun.star.table import BorderLineStyle  # 定数
 COLORS = {\
 		"magenta3": 0xFF00FF,\
 		"black": 0x000000,\
-		"skyblue": 0x00CCFF,\
-		"silver": 0xC0C0C0,\
-		"red3": 0xFF0000,\
 		"violet": 0x9999FF}  # 色の16進数。	
-HOLIDAYS = {\
-		2018:[[1,2,3,8],[11,12],[21],[29,30],[3,4,5],[],[16],[11],[17,23,24],[8],[3,23],[23,24,28,29,30,31]],\
-		2019:[[1,2,3,14],[11],[21],[29],[3,4,5,6],[],[15],[11,12],[16,23],[14],[3,4,23],[23,28,29,30,31]],\
-		2020:[[1,2,3,13],[11],[20],[29],[3,4,5,6],[],[23,24],[10],[21,22],[],[3,23],[23,28,29,30,31]],\
-		2021:[[1,2,3,11],[11],[20],[29],[3,4,5],[],[19],[11],[20,23],[11],[3,23],[23,28,29,30,31]],\
-		2022:[[1,2,3,10],[11],[21],[29],[3,4,5],[],[18],[11],[19,23],[10],[3,23],[23,28,29,30,31]],\
-		2023:[[1,2,3,9],[11],[21],[29],[3,4,5],[],[17],[11],[18,23],[9],[3,23],[23,28,29,30,31]],\
-		2024:[[1,2,3,8],[11,12],[20],[29],[3,4,5,6],[],[15],[11,12],[16,22,23],[14],[3,4,23],[23,28,29,30,31]],\
-		2025:[[1,2,3,13],[11],[20],[29],[3,4,5,6],[],[21],[11],[15,23],[13],[3,23,24],[23,28,29,30,31]],\
-		2026:[[1,2,3,12],[11],[20],[29],[3,4,5,6],[],[20],[11],[21,22,23],[12],[3,23],[23,28,29,30,31]],\
-		2027:[[1,2,3,11],[11],[21,22],[29],[3,4,5],[],[19],[11],[20,23],[11],[3,23],[23,28,29,30,31]],\
-		2028:[[1,2,3,10],[11],[20],[29],[3,4,5],[],[17],[11],[18,22],[9],[3,23],[23,28,29,30,31]],\
-		2029:[[1,2,3,8],[11,12],[20],[29,30],[3,4,5],[],[16],[11],[17,23,24],[8],[3,23],[23,24,28,29,30,31]],\
-		2030:[[1,2,3,14],[11],[20],[29],[3,4,5,6],[],[15],[11,12],[16,23],[14],[3,4,23],[23,28,29,30,31]]}  # 祝日JSON。HOLIDAYS[年][月-1]で祝日の日のタプルが返る。日曜日の祝日も含まれる。
 def getModule(sheetname):  # シート名に応じてモジュールを振り分ける関数。
 	if sheetname is None:  # シート名でNoneが返ってきた時はドキュメントイベントとする。
 		return documentevent
-	elif sheetname=="振替伝票":
+	elif sheetname.startswith("振替伝票"):
 		return journal
 	return None  # モジュールが見つからなかった時はNoneを返す。
-class TextTransferable(unohelper.Base, XTransferable):
-	def __init__(self, txt):  # クリップボードに渡す文字列を受け取る。
-		self.txt = txt
-		self.unicode_content_type = "text/plain;charset=utf-16"
-	def getTransferData(self, flavor):
-		if flavor.MimeType.lower()!=self.unicode_content_type:
-			raise UnsupportedFlavorException()
-		return self.txt
-	def getTransferDataFlavors(self):
-		return DataFlavor(MimeType=self.unicode_content_type, HumanPresentableName="Unicode Text"),  # DataTypeの設定方法は不明。
-	def isDataFlavorSupported(self, flavor):
-		return flavor.MimeType.lower()==self.unicode_content_type
 def formatkeyCreator(doc):  # ドキュメントを引数にする。
 	def createFormatKey(formatstring):  # formatstringの書式はLocalによって異なる。 
 		numberformats = doc.getNumberFormats()  # ドキュメントのフォーマット一覧を取得。デフォルトのフォーマット一覧はCalcの書式→セル→数値でみれる。
@@ -69,32 +34,10 @@ def createBorders():# 枠線の作成。
 	topbottomtableborder = TableBorder2(TopLine=firstline, LeftLine=firstline, RightLine=secondline, BottomLine=secondline, IsTopLineValid=True, IsBottomLineValid=True, IsLeftLineValid=False, IsRightLineValid=False)
 	leftrighttableborder = TableBorder2(TopLine=firstline, LeftLine=firstline, RightLine=secondline, BottomLine=secondline, IsTopLineValid=False, IsBottomLineValid=False, IsLeftLineValid=True, IsRightLineValid=True)
 	return noneline, tableborder2, topbottomtableborder, leftrighttableborder  # 作成した枠線をまとめたタプル。
-def convertKanaFULLWIDTH(transliteration, kanatxt):  # カナ名を半角からスペースを削除して全角にして返す。
-	transliteration.loadModuleNew((HALFWIDTH_FULLWIDTH,), Locale(Language = "ja", Country = "JP"))
-	kanatxt = kanatxt.replace(" ", "")  # 半角空白を除去してカナ名を取得。
-	return transliteration.transliterate(kanatxt, 0, len(kanatxt), [])[0]  # ｶﾅを全角に変換。	
 def showErrorMessageBox(controller, msg):
 	componentwindow = controller.ComponentWindow
 	msgbox = componentwindow.getToolkit().createMessageBox(componentwindow, ERRORBOX, MessageBoxButtons.BUTTONS_OK, "myRs", msg)
-	msgbox.execute()
-def toNewEntry(sheet, rangeaddress, edgerow, dest_row):  # 使用中最下行へ。新規行挿入は不要。
-	startrow, endrowbelow = rangeaddress.StartRow, rangeaddress.EndRow+1  # 選択範囲の開始行と終了行の取得。
-	if endrowbelow>edgerow:
-		endrowbelow = edgerow
-	sourcerangeaddress = sheet[startrow:endrowbelow, :].getRangeAddress()  # コピー元セル範囲アドレスを取得。
-	sheet.moveRange(sheet[dest_row, 0].getCellAddress(), sourcerangeaddress)  # 行の内容を移動。	
-	sheet.removeRange(sourcerangeaddress, delete_rows)  # 移動したソース行を削除。
-def toOtherEntry(sheet, rangeaddress, edgerow, dest_row):  # 新規行挿入が必要な移動。
-	startrow, endrowbelow = rangeaddress.StartRow, rangeaddress.EndRow+1  # 選択範囲の開始行と終了行の取得。
-	if endrowbelow>edgerow:
-		endrowbelow = edgerow
-	sourcerange = sheet[startrow:endrowbelow, :]  # 行挿入前にソースのセル範囲を取得しておく。
-	dest_rangeaddress = sheet[dest_row:dest_row+(endrowbelow-startrow), :].getRangeAddress()  # 挿入前にセル範囲アドレスを取得しておく。
-	sheet.insertCells(dest_rangeaddress, insert_rows)  # 空行を挿入。	
-	sheet.queryIntersection(dest_rangeaddress).clearContents(511)  # 挿入した行の内容をすべてを削除。挿入セルは挿入した行の上のプロパティを引き継いでいるのでリセットしないといけない。
-	sourcerangeaddress = sourcerange.getRangeAddress()  # コピー元セル範囲アドレスを取得。行挿入後にアドレスを取得しないといけない。
-	sheet.moveRange(sheet[dest_row, 0].getCellAddress(), sourcerangeaddress)  # 行の内容を移動。			
-	sheet.removeRange(sourcerangeaddress, delete_rows)  # 移動したソース行を削除。	
+	msgbox.execute()	
 def contextmenuHelper(sheetvars, contextmenuexecuteevent, xscriptcontext):	
 	controller = contextmenuexecuteevent.Selection  # コントローラーは逐一取得しないとgetSelection()が反映されない。。
 	contextmenu = contextmenuexecuteevent.ActionTriggerContainer  # コンテクストメニューコンテナの取得。
