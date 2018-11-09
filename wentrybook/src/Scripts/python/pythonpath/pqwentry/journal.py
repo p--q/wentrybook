@@ -53,56 +53,154 @@ def mousePressed(enhancedmouseevent, xscriptcontext):  # マウスボタンを�
 				if r<VARS.splittedrow and c<VARS.splittedcolumn:
 					txt = selection.getString()
 					if txt=="仕訳日記帳生成":
-						
-						
-						
-						
-						
-						
-						sortSlips(xscriptcontext)  # 伝票を日付順にソート。
-						createJournalDayBook(xscriptcontext)
-					elif txt=="総勘定元帳生成":
-						newkingakucolumns = 3, 4, 5  # 金額書式にする列インデックスのタプル。
-						newheadermergecolumns = 2, 4, 5  # セル結合するヘッダー行の列インデックスのタプル。
-						newtekiyocolumn = 2  # 摘要列インデックス。
-						newkamokucolumnidxes = 1,  # 科目列インデックスのタプル。
-						newdatewidth = 1500  # 日付列幅。1/100mm。
-						newkamokuwidth = 3500  # 科目列幅。
-						newkingakuwidth = 2500  # 科目金額列幅。	
+						kozakamokuname = "仕訳日記帳"
+						newkingakucolumns = 2, 4  # 金額書式にする列インデックスのタプル。
+						newtekiyocolumn = 5  # 摘要列インデックス。
+						newkamokucolumnidxes = 1, 3  # 科目列インデックスのタプル。
+						newheadermergecolumns = 2, 4, 5  # セル結合するヘッダー行の列インデックスのタプル。					
+						tableborder2, headerrows, datarows, newdoc, createFormatKey, newsheets, newdatewidth, newkamokuwidth, newkingakuwidth, pagewidth = Preprocessing(xscriptcontext)
 						splittedrow = VARS.splittedrow	
 						slipnocolumn = VARS.slipnocolumn
-						daycolumn = VARS.daycolumn	
-						tekiyocolumn = VARS.tekiyocolumn		
+						daycolumn = VARS.daycolumn			
 						splittedcolumn = VARS.splittedcolumn		
 						sheet = VARS.sheet
-						ctx = xscriptcontext.getComponentContext()  # コンポーネントコンテクストの取得。
-						smgr = ctx.getServiceManager()  # サービスマネージャーの取得。
 						doc = xscriptcontext.getDocument()
 						controller = doc.getCurrentController()	
 						indicator = controller.getStatusIndicator() 
 						indicator.start("{}中".format(txt), 0)  # 新規ドキュメントを作成後はステータスバーを表示できない。
-						controller.select(sheet[splittedrow:, :])  # ソートするセル範囲を選択。
-						props = PropertyValue(Name="Col1", Value=daycolumn+1),  # Col1の番号は優先順位。Valueはインデックス+1。 
-						dispatcher = smgr.createInstanceWithContext("com.sun.star.frame.DispatchHelper", ctx)
-						dispatcher.executeDispatch(controller.getFrame(), ".uno:DataSort", "", 0, props)  # ディスパッチコマンドでソート。
-						controller.select(selection)  # 元のセルを選択し直す。									
-						datarows = sheet[:VARS.emptyrow, :VARS.emptycolumn].getDataArray()  # 全データ行を取得。
-						for i in filter(lambda x: x, next(zip(*datarows[splittedrow:]))):  # 伝票内計が0から空セル以外の値をイテレート。
-							commons.showErrorMessageBox(doc.getCurrentController(), "貸方と借方が一致しない行があるので\n処理を中止します。")	
+						newdatarows = [(kozakamokuname, "", "", "", "", ""),\
+									(datarows[VARS.splittedrow][VARS.daycolumn], "", "", "", "", ""),\
+									("日付", "借方科目", "借方金額", "貸方科目", "貸方金額", "摘要"),\
+									("伝票番号", "借方補助科目", "", "貸方補助科目", "", "")]  # 新規シートのヘッダー行。
+
+
+
+						slipstartrows = []  # 新規シートの伝票開始行インデックスのリスト。
+						datevalue = ""  # 伝票の日付シリアル値。
+	
+										
+						for i, datarow in enumerate(datarows[splittedrow:], start=splittedrow):  # 伝票行を行インデックスと共にイテレート。
+
+
+							slipstartrows.append(len(newdatarows))  # 新規シートの伝票開始行インデックスを取得。
+							datevalue = "" if datevalue==datarow[daycolumn] else datarow[daycolumn]  # 前の伝票と日付が異なる時のみ日付を表示する。
+							daycolumns = [datevalue, datarow[slipnocolumn]]  # 新規シートの日付列のデータのリスト。伝票の開始行に日付、その下行に伝票番号を表示。
+							
+							
+							
+							karikatakamokus = []  # 借方科目列のデータのリスト。
+							karikatas = []  # 借方金額列のデータのリスト。		
+							karikatatekiyo = []  # 借方摘要列のデータのリスト。				
+							kashikatakamokus = []  # 貸方科目列のデータのリスト。		
+							kashikatas = []  # 貸方金額列のデータのリスト。		
+							kashikatatekiyo = []  # 貸方摘要列のデータのリスト。
+		
+							
+							
+							for j in compress(zip(*headerrows, datarow[splittedcolumn:]), datarow[splittedcolumn:]):  # 空文字や0でないセルが入っている列の行データを列インデックスとヘッダー行と共にイテレート。
+								annotation = sheet[i, j[0]].getAnnotation().getString().strip()  # 伝票行のこの列のセルのコメントを取得。空白文字を削除する。
+								
+
+								if j[3]>0:  # 金額が正の科目は借方。
+									karikatakamokus.extend(j[1:3])
+									karikatas.extend(["", j[3]])	
+									karikatatekiyo.extend([annotation, ""])		
+								else:  # 金額が負の科目は貸方。
+									kashikatakamokus.extend(j[1:3])
+									kashikatas.extend(["", -j[3]])
+									kashikatatekiyo.extend([annotation, ""])									
+								
+									
+
+							gene = zip_longest(daycolumns, karikatakamokus, karikatas, kashikatakamokus, kashikatas, [datarow[VARS.tekiyocolumn]], karikatatekiyo, kashikatatekiyo, fillvalue="")  # 各列を1要素ずつイテレートして1行にする。	
+							for k in gene:
+								newdatarows.append([*k[:-3], "/".join([m for m in k[-3:] if m])])  # 摘要は/で結合する。
+							
+						slipstartrows.append(len(newdatarows))  # 新規シートのデータ終了行の下行インデックスを取得。		
+						if slipstartrows[0]==slipstartrows[-1]:  # 伝票がない時は何もしない。
+							
+							
 							return
-						if not datarows[VARS.kamokurow][splittedcolumn]:  # 科目行先頭列のセルがTrueでない時。
-							commons.showErrorMessageBox(doc.getCurrentController(), "科目行の先頭セルには科目名が入っていないといけません。")	
-							return							
-						kamokus = []
-						[kamokus.append(i if i else kamokus[-1]) for i in datarows[VARS.kamokurow][splittedcolumn:]]  # 科目行をすべて埋める。
-						headerrows = range(splittedcolumn, VARS.emptycolumn), kamokus, datarows[VARS.hojokamokurow][splittedcolumn:]  # 列インデックス行, 科目行、補助科目行。
-						newdoc = xscriptcontext.getDesktop().loadComponentFromURL("private:factory/scalc", "_blank", 0, ())  # 新規ドキュメントの取得。
-						createFormatKey = commons.formatkeyCreator(newdoc)
-						newsheets = newdoc.getSheets()  # 新規ドキュメントのシートコレクションを取得。
-						borderline = BorderLine2(LineWidth=10, Color=commons.COLORS["black"])
-						tableborder2 = TableBorder2(TopLine=borderline, LeftLine=borderline, RightLine=borderline, BottomLine=borderline, IsTopLineValid=True, IsBottomLineValid=True, IsLeftLineValid=True, IsRightLineValid=True)	
-						width, leftmargin, rightmargin = newdoc.getStyleFamilies()["PageStyles"]["Default"].getPropertyValues(("Width", "LeftMargin", "RightMargin"))
-						pagewidth = width - leftmargin - rightmargin  # 印刷幅を1/100mmで取得。	
+						
+						
+						newsheets.insertNewByName(kozakamokuname, len(newsheets))  # 口座科目名のシートを新規ドキュメントに挿入。
+						newsheet = newsheets[kozakamokuname]  # 新規シートを取得。
+						newsheet[:len(newdatarows), :len(newdatarows[0])].setDataArray(newdatarows)  # 新規シートに代入。		
+						columncount = len(newdatarows[0])  # 表の列数。	
+						newsheet[0, :columncount].merge(True)  # 題名セルと結合。			
+						newsheet[0, 0].setPropertyValue("HoriJustify", CENTER)	
+						newsheet[1, 0].setPropertyValues(("NumberFormat", "HoriJustify"), (createFormatKey("YYYY年"), LEFT))  # 年表示セルのプロパティを設定。
+						newsheet[1, :2].merge(True)  # 年表示セルを右横のセルと結合。
+						cellranges = newdoc.createInstance("com.sun.star.sheet.SheetCellRanges")  # セル範囲コレクション。
+						cellranges.addRangeAddresses((newsheet[i, 0].getRangeAddress() for i in slipstartrows[:-1]), False)  # 伝票開始列の日付列セルのセル範囲コレクションを取得。  
+						cellranges.setPropertyValues(("HoriJustify", "NumberFormat"), (LEFT, createFormatKey("M/D")))  # 日付書式設定。
+						cellranges = newdoc.createInstance("com.sun.star.sheet.SheetCellRanges")  # セル範囲コレクション。
+						cellranges.addRangeAddresses((newsheet[j, i].getRangeAddress() for i in newkingakucolumns for j in range(slipstartrows[0]+1, slipstartrows[-1], 2)), False)  # 金額セルのセル範囲コレクションを取得。
+						cellranges.setPropertyValue("NumberFormat", createFormatKey("#,##0"))  # 金額列の書式設定。
+						for i in newheadermergecolumns:  # セル結合するヘッダー行。
+							newsheet[2:4, i].merge(True)
+							newsheet[2, i].setPropertyValue("VertJustify", CellVertJustify2.CENTER)
+						rangeaddresses = []  # 摘要セルのセルアドレスを入れるリスト。
+						for i in range(slipstartrows[0], slipstartrows[-1], 2):  # 1行おきに行インデックスをイテレート。
+							newsheet[i:i+2, newtekiyocolumn].merge(True)  # 摘要列を2行ずつ結合。
+							rangeaddresses.append(newsheet[i, newtekiyocolumn].getRangeAddress())
+						cellranges = newdoc.createInstance("com.sun.star.sheet.SheetCellRanges") 
+						cellranges.addRangeAddresses(rangeaddresses, False)				
+						cellranges.setPropertyValues(("VertJustify", "IsTextWrapped"), (CellVertJustify2.CENTER, True))  # 摘要列を上下中央に、折り返し有効。
+						newsheet[slipstartrows[0]:slipstartrows[-1], :].getRows().setPropertyValue("OptimalHeight", True)  # 内容を折り返した後の行の高さを調整。
+						cellranges = newdoc.createInstance("com.sun.star.sheet.SheetCellRanges")  
+						cellranges.addRangeAddresses((newsheet[i:i+2, j].getRangeAddress() for i in range(slipstartrows[0], slipstartrows[-1], 2) for j in range(1, columncount)), False)					
+						cellranges.setPropertyValue("TableBorder2", tableborder2)  
+						cellranges = newdoc.createInstance("com.sun.star.sheet.SheetCellRanges")  
+						cellranges.addRangeAddresses((newsheet[2:4, j].getRangeAddress() for j in range(columncount)), False)  # 表の1行目の罫線を引く。				
+						cellranges.setPropertyValue("TableBorder2", tableborder2)  						
+						cellranges = newdoc.createInstance("com.sun.star.sheet.SheetCellRanges")  
+						cellranges.addRangeAddresses((newsheet[i:j, 0].getRangeAddress() for i, j in zip(slipstartrows[:-1], slipstartrows[1:])), False)  # 1列目の罫線を伝票区切りで引く。				
+						cellranges.setPropertyValue("TableBorder2", tableborder2)  		
+						columns = newsheet.getColumns()  # 新規シートの列アクセスオブジェクト。
+						for i, j in chain(zip(newkamokucolumnidxes, (newkamokuwidth,)*len(newkamokucolumnidxes)), zip(newkingakucolumns, (newkingakuwidth,)*len(newkingakucolumns))):
+							columns[i].setPropertyValue("Width", j)  # 列幅を設定。
+						columns[0].setPropertyValue("Width", newdatewidth)  # 日付列幅を設定。
+						columns[newtekiyocolumn].setPropertyValue("Width", pagewidth-newdatewidth-newkamokuwidth*len(newkamokucolumnidxes)-newkingakuwidth*len(newkingakucolumns))  # 摘要列幅を設定。残った幅をすべて割り当てる。	
+						
+						
+						
+						
+						indicator.end()  # reset()の前にend()しておかないと元に戻らない。
+						indicator.reset()  # ここでリセットしておかないと例外が発生した時にリセットする機会がない。		
+											
+											
+											
+						newdocname = "仕訳日記帳_{}.ods".format(datetime.now().strftime("%Y%m%d%H%M%S"))
+						
+						
+						del newsheets["Sheet1"]  # 新規ドキュメントのデフォルトシートを削除する。 
+						dirpath = os.path.dirname(unohelper.fileUrlToSystemPath(doc.getURL()))  # このドキュメントのあるディレクトリのフルパスを取得。
+						systempath = os.path.join(dirpath, "帳簿", newdocname)  # 新規ドキュメントのフルパスを取得。
+						if os.path.exists(systempath):  # すでにファイルが存在する時。
+							msg = "{}はすでに存在します。\n上書きしますか？".format(newdocname)
+							componentwindow = doc.getCurrentController().ComponentWindow
+							msgbox = componentwindow.getToolkit().createMessageBox(componentwindow, QUERYBOX, MessageBoxButtons.BUTTONS_YES_NO+MessageBoxButtons.DEFAULT_BUTTON_YES, "WEntryBook", msg)
+							if msgbox.execute()!=MessageBoxResults.YES:  # Yes以外の時はここで終わる。		
+								return
+						newdoc.getStyleFamilies()["PageStyles"]["Default"].setPropertyValue("HeaderIsOn", False)  # 印刷時ヘッダーを付けない。
+						newdoc.storeAsURL(unohelper.systemPathToFileUrl(systempath), ())  # 新規ドキュメントを保存。									
+					elif txt=="総勘定元帳生成":
+						newkingakucolumns = 3, 4, 5  # 金額書式にする列インデックスのタプル。
+						newtekiyocolumn = 2  # 摘要列インデックス。
+						newkamokucolumnidxes = 1,  # 科目列インデックスのタプル。
+						newheadermergecolumns = 2, 4, 5  # セル結合するヘッダー行の列インデックスのタプル。
+						tableborder2, headerrows, datarows, newdoc, createFormatKey, newsheets, newdatewidth, newkamokuwidth, newkingakuwidth, pagewidth = Preprocessing(xscriptcontext)
+						splittedrow = VARS.splittedrow	
+						slipnocolumn = VARS.slipnocolumn
+						daycolumn = VARS.daycolumn			
+						splittedcolumn = VARS.splittedcolumn	
+						tekiyocolumn = VARS.tekiyocolumn			
+						sheet = VARS.sheet
+						doc = xscriptcontext.getDocument()
+						controller = doc.getCurrentController()	
+						indicator = controller.getStatusIndicator() 
+						indicator.start("{}中".format(txt), 0)  # 新規ドキュメントを作成後はステータスバーを表示できない。
 						for kozakamokuname in compress(*(datarows[VARS.kamokurow][splittedcolumn:],)*2):  # 口座科目名をイテレート。科目行の空セルでない値のみイテレート。
 							kozacolumns = []  # 口座科目の列インデックスのリスト。
 							i = 0
@@ -114,6 +212,9 @@ def mousePressed(enhancedmouseevent, xscriptcontext):  # マウスボタンを�
 										(datarows[splittedrow][daycolumn], "", "", "", "", ""),\
 										("日付", "相手勘定科目", "摘要", "補助科目", "貸方金額", "残高"),\
 										("伝票番号", "相手補助科目", "", "借方金額", "", "")]  # 新規シートのヘッダー行。
+							
+							
+							
 							slipstartrows = []  # 新規シートの伝票開始行インデックスのリスト。
 							datevalue = ""  # 伝票の日付シリアル値。
 							zandaka = 0						
@@ -146,6 +247,9 @@ def mousePressed(enhancedmouseevent, xscriptcontext):  # マウスボタンを�
 							slipstartrows.append(len(newdatarows))  # 新規シートのデータ終了行の下行インデックスを取得。		
 							if slipstartrows[0]==slipstartrows[-1]:  # 伝票がない時は何もしない。
 								continue
+							
+							
+							
 							newsheets.insertNewByName(kozakamokuname, len(newsheets))  # 口座科目名のシートを新規ドキュメントに挿入。
 							newsheet = newsheets[kozakamokuname]  # 新規シートを取得。
 							newsheet[:len(newdatarows), :len(newdatarows[0])].setDataArray(newdatarows)  # 新規シートに代入。		
@@ -172,7 +276,7 @@ def mousePressed(enhancedmouseevent, xscriptcontext):  # マウスボタンを�
 							cellranges.setPropertyValues(("VertJustify", "IsTextWrapped"), (CellVertJustify2.CENTER, True))  # 摘要列を上下中央に、折り返し有効。
 							newsheet[slipstartrows[0]:slipstartrows[-1], :].getRows().setPropertyValue("OptimalHeight", True)  # 内容を折り返した後の行の高さを調整。
 							cellranges = newdoc.createInstance("com.sun.star.sheet.SheetCellRanges")  
-							cellranges.addRangeAddresses((newsheet[i:i+2, j].getRangeAddress() for i in range(slipstartrows[0], slipstartrows[-1], 2) for j in range(1, columncount)), False)  # 1行目だけなぜか真ん中の罫線が引かれてしまう。 						
+							cellranges.addRangeAddresses((newsheet[i:i+2, j].getRangeAddress() for i in range(slipstartrows[0], slipstartrows[-1], 2) for j in range(1, columncount)), False) 						
 							cellranges.setPropertyValue("TableBorder2", tableborder2)  
 							cellranges = newdoc.createInstance("com.sun.star.sheet.SheetCellRanges")  
 							cellranges.addRangeAddresses((newsheet[2:4, j].getRangeAddress() for j in range(columncount)), False)  # 表の1行目の罫線を引く。				
@@ -185,9 +289,17 @@ def mousePressed(enhancedmouseevent, xscriptcontext):  # マウスボタンを�
 								columns[i].setPropertyValue("Width", j)  # 列幅を設定。
 							columns[0].setPropertyValue("Width", newdatewidth)  # 日付列幅を設定。
 							columns[newtekiyocolumn].setPropertyValue("Width", pagewidth-newdatewidth-newkamokuwidth*len(newkamokucolumnidxes)-newkingakuwidth*len(newkingakucolumns))  # 摘要列幅を設定。残った幅をすべて割り当てる。	
+
+						
+						
 						indicator.end()  # reset()の前にend()しておかないと元に戻らない。
-						indicator.reset()  # ここでリセットしておかないと例外が発生した時にリセットする機会がない。							
+						indicator.reset()  # ここでリセットしておかないと例外が発生した時にリセットする機会がない。	
+						
+												
 						newdocname = "総勘定元帳_{}.ods".format(datetime.now().strftime("%Y%m%d%H%M%S"))
+						
+						
+						
 						del newsheets["Sheet1"]  # 新規ドキュメントのデフォルトシートを削除する。 
 						dirpath = os.path.dirname(unohelper.fileUrlToSystemPath(doc.getURL()))  # このドキュメントのあるディレクトリのフルパスを取得。
 						systempath = os.path.join(dirpath, "帳簿", newdocname)  # 新規ドキュメントのフルパスを取得。
@@ -200,52 +312,21 @@ def mousePressed(enhancedmouseevent, xscriptcontext):  # マウスボタンを�
 						newdoc.getStyleFamilies()["PageStyles"]["Default"].setPropertyValue("HeaderIsOn", False)  # 印刷時ヘッダーを付けない。
 						newdoc.storeAsURL(unohelper.systemPathToFileUrl(systempath), ())  # 新規ドキュメントを保存。				
 					elif txt=="全補助元帳生成":
-						
 						newheadermergecolumns = 2, 3, 4, 5  # セル結合するヘッダー行の列インデックスのタプル。
-						
-						
 						newkingakucolumns = 3, 4, 5  # 金額書式にする列インデックスのタプル。
 						newtekiyocolumn = 2  # 摘要列インデックス。
 						newkamokucolumnidxes = 1,  # 科目列インデックスのタプル。
-						newdatewidth = 1500  # 日付列幅。1/100mm。
-						newkamokuwidth = 3500  # 科目列幅。
-						newkingakuwidth = 2500  # 科目金額列幅。	
+						tableborder2, headerrows, datarows, newdoc, createFormatKey, newsheets, newdatewidth, newkamokuwidth, newkingakuwidth, pagewidth = Preprocessing(xscriptcontext)
 						splittedrow = VARS.splittedrow	
 						slipnocolumn = VARS.slipnocolumn
-						daycolumn = VARS.daycolumn	
-						tekiyocolumn = VARS.tekiyocolumn		
-						splittedcolumn = VARS.splittedcolumn		
+						daycolumn = VARS.daycolumn			
+						splittedcolumn = VARS.splittedcolumn	
+						tekiyocolumn = VARS.tekiyocolumn			
 						sheet = VARS.sheet
-						ctx = xscriptcontext.getComponentContext()  # コンポーネントコンテクストの取得。
-						smgr = ctx.getServiceManager()  # サービスマネージャーの取得。
 						doc = xscriptcontext.getDocument()
 						controller = doc.getCurrentController()	
 						indicator = controller.getStatusIndicator() 
-						indicator.start("{}中".format(txt), 0)  # 新規ドキュメントを作成後はステータスバーを表示できない。
-						controller.select(sheet[splittedrow:, :])  # ソートするセル範囲を選択。
-						props = PropertyValue(Name="Col1", Value=daycolumn+1),  # Col1の番号は優先順位。Valueはインデックス+1。 
-						dispatcher = smgr.createInstanceWithContext("com.sun.star.frame.DispatchHelper", ctx)
-						dispatcher.executeDispatch(controller.getFrame(), ".uno:DataSort", "", 0, props)  # ディスパッチコマンドでソート。
-						controller.select(selection)  # 元のセルを選択し直す。									
-						datarows = sheet[:VARS.emptyrow, :VARS.emptycolumn].getDataArray()  # 全データ行を取得。
-						for i in filter(lambda x: x, next(zip(*datarows[splittedrow:]))):  # 伝票内計が0から空セル以外の値をイテレート。
-							commons.showErrorMessageBox(doc.getCurrentController(), "貸方と借方が一致しない行があるので\n処理を中止します。")	
-							return
-						if not datarows[VARS.kamokurow][splittedcolumn]:  # 科目行先頭列のセルがTrueでない時。
-							commons.showErrorMessageBox(doc.getCurrentController(), "科目行の先頭セルには科目名が入っていないといけません。")	
-							return							
-						kamokus = []
-						[kamokus.append(i if i else kamokus[-1]) for i in datarows[VARS.kamokurow][splittedcolumn:]]  # 科目行をすべて埋める。
-						headerrows = range(splittedcolumn, VARS.emptycolumn), kamokus, datarows[VARS.hojokamokurow][splittedcolumn:]  # 列インデックス行, 科目行、補助科目行。
-						newdoc = xscriptcontext.getDesktop().loadComponentFromURL("private:factory/scalc", "_blank", 0, ())  # 新規ドキュメントの取得。
-						createFormatKey = commons.formatkeyCreator(newdoc)
-						newsheets = newdoc.getSheets()  # 新規ドキュメントのシートコレクションを取得。
-						borderline = BorderLine2(LineWidth=10, Color=commons.COLORS["black"])
-						tableborder2 = TableBorder2(TopLine=borderline, LeftLine=borderline, RightLine=borderline, BottomLine=borderline, IsTopLineValid=True, IsBottomLineValid=True, IsLeftLineValid=True, IsRightLineValid=True)	
-						width, leftmargin, rightmargin = newdoc.getStyleFamilies()["PageStyles"]["Default"].getPropertyValues(("Width", "LeftMargin", "RightMargin"))
-						pagewidth = width - leftmargin - rightmargin  # 印刷幅を1/100mmで取得。	
-						
-						
+						indicator.start("{}中".format(txt), 0)  # 新規ドキュメントを作成後はステータスバーを表示できない。						
 						for k in range(len(headerrows[0])):
 							kozakamokuname = "{}_{}".format(headerrows[1][k], headerrows[2][k]) if headerrows[2][k] else headerrows[1][k]
 							newdatarows = [(kozakamokuname, "", "", "", "", ""),\
@@ -299,6 +380,8 @@ def mousePressed(enhancedmouseevent, xscriptcontext):  # マウスボタンを�
 							slipstartrows.append(len(newdatarows))  # 新規シートのデータ終了行の下行インデックスを取得。		
 							if slipstartrows[0]==slipstartrows[-1]:  # 伝票がない時は何もしない。
 								continue
+							
+							
 							newsheets.insertNewByName(kozakamokuname, len(newsheets))  # 口座科目名のシートを新規ドキュメントに挿入。
 							newsheet = newsheets[kozakamokuname]  # 新規シートを取得。
 							newsheet[:len(newdatarows), :len(newdatarows[0])].setDataArray(newdatarows)  # 新規シートに代入。		
@@ -338,6 +421,9 @@ def mousePressed(enhancedmouseevent, xscriptcontext):  # マウスボタンを�
 								columns[i].setPropertyValue("Width", j)  # 列幅を設定。
 							columns[0].setPropertyValue("Width", newdatewidth)  # 日付列幅を設定。
 							columns[newtekiyocolumn].setPropertyValue("Width", pagewidth-newdatewidth-newkamokuwidth*len(newkamokucolumnidxes)-newkingakuwidth*len(newkingakucolumns))  # 摘要列幅を設定。残った幅をすべて割り当てる。	
+							
+							
+							
 						indicator.end()  # reset()の前にend()しておかないと元に戻らない。
 						indicator.reset()  # ここでリセットしておかないと例外が発生した時にリセットする機会がない。		
 											
@@ -368,212 +454,38 @@ def mousePressed(enhancedmouseevent, xscriptcontext):  # マウスボタンを�
 					datedialog.createDialog(enhancedmouseevent, xscriptcontext, "取引日", "YYYY-MM-DD")	
 					return False  # セル編集モードにしない。
 	return True  # セル編集モードにする。シングルクリックは必ずTrueを返さないといけない。
-def sortSlips(xscriptcontext):  # 伝票を日付順にソート。
+def Preprocessing(xscriptcontext):
+	newdatewidth = 1500  # 日付列幅。1/100mm。
+	newkamokuwidth = 3500  # 科目列幅。
+	newkingakuwidth = 2500  # 科目金額列幅。	
 	ctx = xscriptcontext.getComponentContext()  # コンポーネントコンテクストの取得。
 	smgr = ctx.getServiceManager()  # サービスマネージャーの取得。
-	controller = xscriptcontext.getDocument().getCurrentController()	
+	doc = xscriptcontext.getDocument()
+	selection = doc.getCurrentSelection()
+	controller = doc.getCurrentController()	
 	controller.select(VARS.sheet[VARS.splittedrow:, :])  # ソートするセル範囲を選択。
 	props = PropertyValue(Name="Col1", Value=VARS.daycolumn+1),  # Col1の番号は優先順位。Valueはインデックス+1。 
 	dispatcher = smgr.createInstanceWithContext("com.sun.star.frame.DispatchHelper", ctx)
 	dispatcher.executeDispatch(controller.getFrame(), ".uno:DataSort", "", 0, props)  # ディスパッチコマンドでソート。
-	controller.select(VARS.sheet["A1"])  # A1セルだけ選択にしておく。
-def generateSubsidiaryLedger(xscriptcontext, kamokuidx):  # 補助元帳作成。
-	kamokucolumnidxes = 1,  # 科目列インデックスのタプル。
-	kingakucolumnidxes = 3, 4, 5  # 金額の列インデックスのタプル。
-	tekiyocolumnidxes = 2  # 摘要列インデックス。		
-	datewidth = 1500  # 日付列幅。1/100mm。
-	kamokuwidth = 3500  # 科目列幅。
-	kingakuwidth = 2500  # 科目金額列幅。		
-	sheet = VARS.sheet
-	doc = xscriptcontext.getDocument()
-	if not verifySlips(doc):
-		return  # すべての伝票行の借方と貸方が一致していることを確認する。
-	datarows = sheet[:VARS.emptyrow, :VARS.emptycolumn].getDataArray()  # データ範囲をすべて取得。
-	headerrows = createHeaderRows(datarows)  # 列インデックス行, 科目行、補助科目行。
-	newsheetname = "_".join([i for i in (headerrows[1][kamokuidx-VARS.splittedcolumn], headerrows[2][kamokuidx-VARS.splittedcolumn]) if i])
-	newdatarows = [(datarows[VARS.splittedrow][VARS.daycolumn], "", "", "", "", ""),\
-				("日付", "相手勘定科目", "摘要", "借方金額", "貸方金額", "残高"),\
-				("伝票番号", "相手補助科目", "", "", "", "")]
-	newsliprows = []
-	slipstartrows = []  # 伝票開始行インデックスのリスト。
-	createDataColumns2 = createDataColumns2Creator(slipstartrows, datarows, headerrows, kamokuidx)
-	for i in range(VARS.splittedrow, VARS.emptyrow):  # 伝票行インデックスをイテレート。
-		if datarows[i][kamokuidx]:  # 指定科目のセルが空セルや0でない時のみ。
-			for k in zip_longest(*createDataColumns2(newdatarows, i), fillvalue=""):  # 各列を1要素ずつイテレートして1行にする。			
-				newsliprows.append(k)
-	if newsliprows:  # データ行が取得できた時のみ。取得できないのはその科目に伝票がない時。
-		newdatarows.extend(newsliprows)			
-		slipstartrows.append(len(newdatarows))  # 最終行下の行インデックスを取得。
-		newsheet = createNewSheet(doc, newsheetname, newdatarows, slipstartrows, kamokucolumnidxes, kingakucolumnidxes, tekiyocolumnidxes)	
-		if newsheet:
-			columns = newsheet.getColumns()  # 列アクセスオブジェクト。
-			for i, j in chain(zip(kamokucolumnidxes, (kamokuwidth,)*len(kamokucolumnidxes)), zip(kingakucolumnidxes, (kingakuwidth,)*len(kingakucolumnidxes))):
-				columns[i].setPropertyValue("Width", j)  # 列幅を設定。
-			width, leftmargin, rightmargin = doc.getStyleFamilies()["PageStyles"]["Default"].getPropertyValues(("Width", "LeftMargin", "RightMargin"))
-			pagewidth = width - leftmargin - rightmargin  # 印刷幅を1/100mmで取得。
-			columns[0].setPropertyValue("Width", datewidth)  # 日付列幅を設定。
-			columns[tekiyocolumnidxes].setPropertyValue("Width", pagewidth-datewidth-kamokuwidth*len(kamokucolumnidxes)-kingakuwidth*len(kingakucolumnidxes))  # 摘要列幅を設定。残った幅をすべて割り当てる。
-			return newsheetname
-def createDataColumns2Creator(slipstartrows, datarows, headerrows, kamokuidx):
-	datevalue = ""
-	zandaka = 0
-	def createDataColumns2(newdatarows, i):
-		nonlocal datevalue, zandaka
-		slipstartrows.append(len(newdatarows))  # 伝票開始行インデックスを取得。
-		datarow = datarows[i]
-		datevalue = "" if datevalue==datarow[VARS.daycolumn] else datarow[VARS.daycolumn]  # 前の伝票と日付が異なる時のみ日付を表示する。
-		daycolumns = [datevalue, datarow[VARS.slipnocolumn]]  # 日付列のデータのリスト。
-		aitekamokus = []
-		karikatas = []
-		kashikatas = []
-		for j in compress(zip(*headerrows, datarow[VARS.splittedcolumn:]), datarow[VARS.splittedcolumn:]):  # 空文字や0でないセルが入っている列の要素のみイテレート。
-			if j[0]==kamokuidx:  # 口座科目の時。
-				annotation = VARS.sheet[i, j[0]].getAnnotation().getString()
-				if annotation:
-					tekiyos = annotation, ""
-				else:
-					tekiyos = datarow[VARS.tekiyocolumn], ""
-				if j[3]>0:  # 金額が正は借方。
-					karikatas.extend([j[3], ""])	
-				else:  # 金額が負は貸方。
-					kashikatas.extend([-j[3], ""])					
-				zandaka += j[3]
-				zandakas = zandaka, ""
-			else:  # 口座科目でない時。
-				if not aitekamokus:  # 相手科目がまだ未設定の時。
-					aitekamokus = j[1:3]					
-				elif "諸口" not in aitekamokus: 
-					aitekamokus = "諸口", ""  # 相手科目が複数の時の相手科目は諸口にする。
-		return daycolumns, aitekamokus, tekiyos, karikatas, kashikatas, zandakas
-	return createDataColumns2
-def createJournalDayBook(xscriptcontext):
-	newsheetname = "仕訳日記帳"
-	kamokucolumnidxes = 1, 3  # 科目列インデックスのタプル。
-	kingakucolumnidxes = 2, 4  # 金額の列インデックスのタプル。
-	tekiyocolumnidxes = 5  # 摘要列インデックス。	
-	datewidth = 1500  # 日付列幅。1/100mm。
-	kamokuwidth = 3500  # 科目列幅。
-	kingakuwidth = 2500  # 科目金額列幅。	
-	sheet = VARS.sheet
-	doc = xscriptcontext.getDocument()
-	if not verifySlips(doc):
-		return  # すべての伝票行の借方と貸方が一致していることを確認する。
-	datarows = sheet[:VARS.emptyrow, :VARS.emptycolumn].getDataArray()  # データ範囲をすべて取得。
-	headerrows = createHeaderRows(datarows)  # 列インデックス行, 科目行、補助科目行、のタプルを取得。
-	newdatarows = [(datarows[VARS.splittedrow][VARS.daycolumn], "", "", "", "", ""),\
-				("日付", "借方科目", "借方金額", "貸方科目", "貸方金額", "摘要"),\
-				("伝票番号", "借方補助科目", "", "貸方補助科目", "", "")]
-	slipstartrows = []  # 伝票開始行インデックスのリスト。
-	createDataColumns = createDataColumnsCreator(slipstartrows, datarows, headerrows)
-	for i in range(VARS.splittedrow, VARS.emptyrow):  # 伝票行インデックスをイテレート。
-		for k in zip_longest(*createDataColumns(newdatarows, i), fillvalue=""):  # 各列を1要素ずつイテレートして1行にする。			
-			newdatarows.append([*k[:-3], "/".join([m for m in k[-3:] if m])])  # 摘要は/で結合する。
-	slipstartrows.append(len(newdatarows))  # 最終行下の行インデックスを取得。
-	newsheet = createNewSheet(doc, newsheetname, newdatarows, slipstartrows, kamokucolumnidxes, kingakucolumnidxes, tekiyocolumnidxes)	
-	if newsheet:
-		columns = newsheet.getColumns()  # 列アクセスオブジェクト。
-		for i, j in chain(zip(kamokucolumnidxes, (kamokuwidth,)*len(kamokucolumnidxes)), zip(kingakucolumnidxes, (kingakuwidth,)*len(kingakucolumnidxes))):
-			columns[i].setPropertyValue("Width", j)  # 列幅を設定。
-		width, leftmargin, rightmargin = doc.getStyleFamilies()["PageStyles"]["Default"].getPropertyValues(("Width", "LeftMargin", "RightMargin"))
-		pagewidth = width - leftmargin - rightmargin  # 印刷幅を1/100mmで取得。
-		columns[0].setPropertyValue("Width", datewidth)  # 日付列幅を設定。
-		columns[tekiyocolumnidxes].setPropertyValue("Width", pagewidth-datewidth-2*(kamokuwidth+kingakuwidth))  # 摘要列幅を設定。残った幅をすべて割り当てる。
-		detachSheet(xscriptcontext, newsheetname, "{}_{}.ods".format(newsheetname, datetime.now().strftime("%Y%m%d%H%M%S")))  # シートをファイルに切り出す。
-def createNewSheet(doc, newsheetname, newdatarows, slipstartrows, kamokucolumnidxes, kingakucolumnidxes, tekiyocolumnidxes):	
-	columncount = len(newdatarows[0])
-	sheets = doc.getSheets()
-	if newsheetname in sheets:  # すでに同名シートがある時は削除する。
-		msg = "{}シートはすでに存在します。\n上書きしますか？".format(newsheetname)
-		componentwindow = doc.getCurrentController().ComponentWindow
-		msgbox = componentwindow.getToolkit().createMessageBox(componentwindow, QUERYBOX, MessageBoxButtons.BUTTONS_YES_NO+MessageBoxButtons.DEFAULT_BUTTON_YES, "WEntryBook", msg)
-		if msgbox.execute()==MessageBoxResults.YES:				
-			del sheets[newsheetname]
-		else:
-			return
-	sheets.insertNewByName(newsheetname, len(sheets))
-	newsheet = sheets[newsheetname]
-	newsheet[:len(newdatarows), :len(newdatarows[0])].setDataArray(newdatarows)
-	createFormatKey = commons.formatkeyCreator(doc)
-	newsheet[0, 0].setPropertyValue("NumberFormat", createFormatKey("YYYY年"))  # 年表示セル。
-	newsheet[0, :2].merge(True)  # 年表示セル。
-	newsheet[0, 0].setPropertyValue("HoriJustify", LEFT)  # 年表示セルを左寄せ。	
-	cellranges = doc.createInstance("com.sun.star.sheet.SheetCellRanges")  # セル範囲コレクション。
-	cellranges.addRangeAddresses((newsheet[i, 0].getRangeAddress() for i in slipstartrows), False)  
-	cellranges.setPropertyValues(("HoriJustify", "NumberFormat"), (LEFT, createFormatKey("M/D")))  # 日付書式設定。
-	cellranges = doc.createInstance("com.sun.star.sheet.SheetCellRanges")  # セル範囲コレクション。
-	cellranges.addRangeAddresses((newsheet[slipstartrows[0]:len(newdatarows), i].getRangeAddress() for i in kingakucolumnidxes), False)  # 金額列の書式設定。
-	cellranges.setPropertyValue("NumberFormat", createFormatKey("#,##0"))
-	for i in kingakucolumnidxes:  # 貸方金額と借方金額のヘッダー行。
-		newsheet[1:3, i].merge(True)
-		newsheet[1, i].setPropertyValue("VertJustify", CellVertJustify2.CENTER)
-	rangeaddresses = []
-	for i in range(1, len(newdatarows), 2):
-		newsheet[i:i+2, tekiyocolumnidxes].merge(True)  # 摘要列について。
-		rangeaddresses.append(newsheet[i, tekiyocolumnidxes].getRangeAddress())
-	cellranges = doc.createInstance("com.sun.star.sheet.SheetCellRanges") 
-	cellranges.addRangeAddresses(rangeaddresses, False)				
-	cellranges.setPropertyValues(("VertJustify", "IsTextWrapped"), (CellVertJustify2.CENTER, True))  # 摘要列を上下中央に、折り返し有効。
-	newsheet[2:, tekiyocolumnidxes].getRows().setPropertyValue("OptimalHeight", True)  # 内容を折り返した後の行の高さを調整。
-	borderline = BorderLine2(LineWidth=10, Color=commons.COLORS["black"])
-	noneline = BorderLine2(LineStyle=BorderLineStyle.NONE)
-	tableborder2 = TableBorder2(TopLine=borderline, LeftLine=borderline, RightLine=borderline, BottomLine=borderline, IsTopLineValid=True, IsBottomLineValid=True, IsLeftLineValid=True, IsRightLineValid=True)
-	nonetableborder2 = TableBorder2(TopLine=noneline, LeftLine=noneline, RightLine=noneline, BottomLine=noneline, IsTopLineValid=True, IsBottomLineValid=True, IsLeftLineValid=True, IsRightLineValid=True)
-	cellranges = doc.createInstance("com.sun.star.sheet.SheetCellRanges")  
-	cellranges.addRangeAddresses((newsheet[i:i+2, j].getRangeAddress() for i in range(3, len(newdatarows), 2) for j in range(1, columncount)), False)  # 1行目だけなぜか真ん中の罫線が引かれてしまう。 						
-	cellranges.setPropertyValue("TableBorder2", tableborder2)  
-	cellranges = doc.createInstance("com.sun.star.sheet.SheetCellRanges") 
-	cellranges.addRangeAddresses((newsheet[i, j].getRangeAddress() for i in (3, 4) for j in kamokucolumnidxes), False)  # 1行目の勝手に引かれた罫線を消す。					
-	cellranges.setPropertyValue("TableBorder2", nonetableborder2)  
-	cellranges = doc.createInstance("com.sun.star.sheet.SheetCellRanges")  
-	cellranges.addRangeAddresses((newsheet[1:3, j].getRangeAddress() for j in range(columncount)), False)  # 1行目の罫線を引き直す。				
-	cellranges.setPropertyValue("TableBorder2", tableborder2)  						
-	cellranges = doc.createInstance("com.sun.star.sheet.SheetCellRanges")  
-	cellranges.addRangeAddresses((newsheet[i:j, 0].getRangeAddress() for i, j in zip(slipstartrows[:-1], slipstartrows[1:])), False)  # 1列目の罫線を伝票区切りで引く。				
-	cellranges.setPropertyValue("TableBorder2", tableborder2)  		
-	return newsheet
-def createDataColumnsCreator(slipstartrows, datarows, headerrows):
-	datevalue = ""
-	def createDataColumns(newdatarows, i):
-		nonlocal datevalue
-		slipstartrows.append(len(newdatarows))  # 伝票開始行インデックスを取得。
-		datarow = datarows[i]
-		datevalue = "" if datevalue==datarow[VARS.daycolumn] else datarow[VARS.daycolumn]  # 前の伝票と日付が異なる時のみ日付を表示する。
-		daycolumns = [datevalue, datarow[VARS.slipnocolumn]]  # 日付列のデータのリスト。
-		karikatakamokus = []  # 借方科目列のデータのリスト。
-		karikatas = []  # 借方金額列のデータのリスト。		
-		karikatatekiyo = []  # 借方摘要列のデータのリスト。				
-		kashikatakamokus = []  # 貸方科目列のデータのリスト。		
-		kashikatas = []  # 貸方金額列のデータのリスト。		
-		kashikatatekiyo = []  # 貸方摘要列のデータのリスト。		
-		for j in compress(zip(*headerrows, datarow[VARS.splittedcolumn:]), datarow[VARS.splittedcolumn:]):  # 空文字や0でないセルが入っている列の要素のみイテレート。
-			annotation = VARS.sheet[i, j[0]].getAnnotation().getString()
-			if j[3]>0:  # 金額が正の科目は借方。
-				karikatakamokus.extend(j[1:3])
-				karikatas.extend([j[3], ""])	
-				karikatatekiyo.extend([annotation, ""])		
-			else:  # 金額が負の科目は貸方。
-				kashikatakamokus.extend(j[1:3])
-				kashikatas.extend([-j[3], ""])
-				kashikatatekiyo.extend([annotation, ""])	
-		return daycolumns, karikatakamokus, karikatas, kashikatakamokus, kashikatas, [datarow[VARS.tekiyocolumn]], karikatatekiyo, kashikatatekiyo
-	return createDataColumns
-def createHeaderRows(datarows):  # 科目行の空セルをすべて埋めたあと、列インデックス行, 科目行、補助科目行、を返す。
+	controller.select(selection)  # 元のセルを選択し直す。									
+	datarows = VARS.sheet[:VARS.emptyrow, :VARS.emptycolumn].getDataArray()  # 全データ行を取得。
+	for dummy in filter(lambda x: x, next(zip(*datarows[VARS.splittedrow:]))):  # 伝票内計が0から空セル以外の値をイテレート。
+		commons.showErrorMessageBox(doc.getCurrentController(), "貸方と借方が一致しない行があるので\n処理を中止します。")	
+		return
+	if not datarows[VARS.kamokurow][VARS.splittedcolumn]:  # 科目行先頭列のセルがTrueでない時。
+		commons.showErrorMessageBox(doc.getCurrentController(), "科目行の先頭セルには科目名が入っていないといけません。")	
+		return							
 	kamokus = []
-	buf = ""
-	for i in datarows[VARS.kamokurow][VARS.splittedcolumn:]:
-		if i:
-			buf = i
-		kamokus.append(buf)  # 科目行をすべて埋める。
-	return range(VARS.splittedcolumn, VARS.emptycolumn), kamokus, datarows[VARS.hojokamokurow][VARS.splittedcolumn:]  # 列インデックス行, 科目行、補助科目行。
-def verifySlips(doc):  # すべての伝票行の借方と貸方が一致していることを確認する。
-	searchdescriptor = VARS.sheet.createSearchDescriptor()
-	searchdescriptor.setPropertyValue("SearchRegularExpression", True)  # 正規表現を有効にする。
-	searchdescriptor.setSearchString("[^0]")  # 0以外のセルを取得。戻り値はない。	
-	cellranges = VARS.sheet[VARS.splittedrow:VARS.emptyrow, VARS.sliptotalcolumn].queryContentCells(CellFlags.VALUE).findAll(searchdescriptor)  # 値のあるセルから0以外が入っているセル範囲コレクションを取得。見つからなかった時はNoneが返る。
-	if cellranges:
-		commons.showErrorMessageBox(doc.getCurrentController(), "貸方と借方が一致しない行があります。")	
-		return False
-	return True
+	[kamokus.append(i if i else kamokus[-1]) for i in datarows[VARS.kamokurow][VARS.splittedcolumn:]]  # 科目行をすべて埋める。
+	headerrows = range(VARS.splittedcolumn, VARS.emptycolumn), kamokus, datarows[VARS.hojokamokurow][VARS.splittedcolumn:]  # 列インデックス行, 科目行、補助科目行。
+	newdoc = xscriptcontext.getDesktop().loadComponentFromURL("private:factory/scalc", "_blank", 0, ())  # 新規ドキュメントの取得。
+	createFormatKey = commons.formatkeyCreator(newdoc)
+	newsheets = newdoc.getSheets()  # 新規ドキュメントのシートコレクションを取得。
+	borderline = BorderLine2(LineWidth=10, Color=commons.COLORS["black"])
+	tableborder2 = TableBorder2(TopLine=borderline, LeftLine=borderline, RightLine=borderline, BottomLine=borderline, IsTopLineValid=True, IsBottomLineValid=True, IsLeftLineValid=True, IsRightLineValid=True)	
+	width, leftmargin, rightmargin = newdoc.getStyleFamilies()["PageStyles"]["Default"].getPropertyValues(("Width", "LeftMargin", "RightMargin"))
+	pagewidth = width - leftmargin - rightmargin  # 印刷幅を1/100mmで取得。	
+	return tableborder2, headerrows, datarows, newdoc, createFormatKey, newsheets, newdatewidth, newkamokuwidth, newkingakuwidth, pagewidth
 def selectionChanged(eventobject, xscriptcontext):  # 矢印キーでセル移動した時も発火する。
 	selection = eventobject.Source.getSelection()	
 	if selection.supportsService("com.sun.star.sheet.SheetCellRange"):  # 選択範囲がセル範囲の時。
@@ -721,10 +633,9 @@ def contextMenuEntries(entrynum, xscriptcontext):  # コンテクストメニュ
 		
 		pass
 	elif entrynum==3:  # 補助元帳生成
-		sortSlips(xscriptcontext)  # 伝票を日付順にソート。
-		newsheetname = generateSubsidiaryLedger(xscriptcontext, selection.getCellAddress().Column)
-		if newsheetname:
-			detachSheet(xscriptcontext, newsheetname, "{}_{}.ods".format(newsheetname, datetime.now().strftime("%Y%m%d%H%M%S")))  # シートをファイルに切り出す。	
+		
+		pass
+
 	elif entrynum==4:  # 現金で決済
 		datarow = sheet[VARS.kamokurow, :VARS.emptycolumn].getDataArray()[0]
 		settle(sheet[selection.getCellAddress().Row, datarow.index("現金", VARS.splittedcolumn)])
@@ -809,20 +720,3 @@ def callback_sliphistoryCreator(xscriptcontext):
 		datarows = sheet[VARS.subtotalrow:VARS.emptyrow, min(recalccols):max(recalccols)+1].getDataArray()  # 個別の列だけ再計算するのは面倒なので、連続する列すべてを再計算する。
 		sheet[VARS.subtotalrow, min(recalccols):max(recalccols)+1].setDataArray(([sum(filter(lambda x: isinstance(x, float), i)) for i in zip(*datarows[1:])],))  # 列ごとの合計を取得。			
 	return callback_sliphistory	
-def detachSheet(xscriptcontext, sheetname, newdocname):
-	doc = xscriptcontext.getDocument()
-	newdoc = xscriptcontext.getDesktop().loadComponentFromURL("private:factory/scalc", "_blank", 0, ())  # 新規ドキュメントの取得。
-	newsheets = newdoc.getSheets()  # 新規ドキュメントのシートコレクションを取得。
-	newsheets.importSheet(doc, sheetname, 0)  # 新規ドキュメントにシートをコピー。
-	del newsheets["Sheet1"]  # 新規ドキュメントのデフォルトシートを削除する。 
-	del doc.getSheets()[sheetname]  # 切り出したカルテシートを削除する。 
-	dirpath = os.path.dirname(unohelper.fileUrlToSystemPath(doc.getURL()))  # このドキュメントのあるディレクトリのフルパスを取得。
-	systempath = os.path.join(dirpath, "帳簿", newdocname)
-	if os.path.exists(systempath):  # すでにファイルが存在する時。
-		msg = "{}はすでに存在します。\n上書きしますか？".format(newdocname)
-		componentwindow = doc.getCurrentController().ComponentWindow
-		msgbox = componentwindow.getToolkit().createMessageBox(componentwindow, QUERYBOX, MessageBoxButtons.BUTTONS_YES_NO+MessageBoxButtons.DEFAULT_BUTTON_YES, "WEntryBook", msg)
-		if msgbox.execute()!=MessageBoxResults.YES:			
-			return
-	fileurl = unohelper.systemPathToFileUrl(systempath)
-	newdoc.storeAsURL(fileurl, ())  
