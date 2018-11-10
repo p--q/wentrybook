@@ -25,6 +25,7 @@ class Journal():  # シート固有の値。
 		self.daycolumn = 2  # 取引日列インデックス。
 		self.tekiyocolumn = 3  # 摘要列インデックス。
 		self.splittedcolumn = 4  # 固定列インデックス。
+		self.settlingdatedigits = None  # 決算日の日付の年月日のリスト。
 	def setSheet(self, sheet):  # 逐次変化する値。
 		self.sheet = sheet
 		cellranges = sheet[self.splittedrow:, self.slipnocolumn].queryContentCells(CellFlags.VALUE)  # 伝票番号列の日付列が入っているセルに限定して抽出。
@@ -42,7 +43,18 @@ def activeSpreadsheetChanged(activationevent, xscriptcontext):  # シートが�
 	initSheet(activationevent.ActiveSheet, xscriptcontext)
 def initSheet(sheet, xscriptcontext):	
 	sheet["A1:A3"].setDataArray((("仕訳日記帳生成",), ("総勘定元帳生成",), ("全補助元帳生成",)))  # よく誤入力されるセルを修正する。つまりボタンになっているセルの修正。
-	sheet["D1"].setDataArray((("次年度繰越",),))
+	sheet["C1"].setDataArray((("決算日",),))
+	settlingdatecell = sheet["C2"]
+	settlingdatevalue = settlingdatecell.getValue()  # 決算日の日付シリアル値を取得。
+	if isinstance(settlingdatevalue, float) and settlingdatevalue>0:
+		ctx = xscriptcontext.getComponentContext()  # コンポーネントコンテクストの取得。
+		smgr = ctx.getServiceManager()  # サービスマネージャーの取得。			
+		functionaccess = smgr.createInstanceWithContext("com.sun.star.sheet.FunctionAccess", ctx)  # シート関数利用のため。	
+		VARS.settlingdatedigits = [int(functionaccess.callFunction(i, (settlingdatevalue,))) for i in ("YEAR", "MONTH", "DAY")]
+	elif not settlingdatevalue:
+		settlingdatecell.setString("決算日をこのセルに入力してください。")
+		createFormatKey = commons.formatkeyCreator(xscriptcontext.getDocument())
+		settlingdatecell.setPropertyValue("NumberFormat", createFormatKey("YYYY-MM-DD"))  
 def mousePressed(enhancedmouseevent, xscriptcontext):  # マウスボタンを押した時。controllerにコンテナウィンドウはない。
 	if enhancedmouseevent.Buttons==MouseButton.LEFT:  # 左クリックの時。
 		selection = enhancedmouseevent.Target  # ターゲットのセルを取得。
@@ -154,7 +166,7 @@ def mousePressed(enhancedmouseevent, xscriptcontext):  # マウスボタンを�
 						pass
 					
 					return False  # セル編集モードにしない。
-				elif r>=splittedrow and c==daycolumn:  # 取引日列インデックスの時。
+				elif r>=VARS.splittedrow and c==VARS.daycolumn:  # 取引日列インデックスの時。
 					datedialog.createDialog(enhancedmouseevent, xscriptcontext, "取引日", "YYYY-MM-DD")	
 					return False  # セル編集モードにしない。
 	return True  # セル編集モードにする。シングルクリックは必ずTrueを返さないといけない。
