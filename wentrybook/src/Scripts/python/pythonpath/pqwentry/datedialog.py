@@ -83,8 +83,6 @@ def createDialog(enhancedmouseevent, xscriptcontext, dialogtitle, formatstring=N
 	if centerday is None:
 		centerday = date.today()
 		col0[todayindex-1:todayindex+2] = "昨日", "今日", "明日"  # 列インデックス0に入れる文字列を取得。
-		
-		
 	settlingdatedigits = journal.VARS.settlingdatedigits
 	if settlingdatedigits:  # シートの年度が取得できた時。
 		y, m, d = settlingdatedigits
@@ -92,9 +90,6 @@ def createDialog(enhancedmouseevent, xscriptcontext, dialogtitle, formatstring=N
 		edate = date(*settlingdatedigits)  # 年度終了日。			
 		numericfield1.setMin((sdate-centerday).days//7)  # 最小週数を設定。
 		numericfield1.setMax((edate-centerday).days//7)  # 最大週数を設定。
-		
-		
-		
 	addDays(gridcontrol1, centerday, col0)  # グリッドコントロールに行を入れる。	
 	if cellvalue>0: # セルに値があった時。
 		gridcontrol1.selectRow(todayindex)  # セル値の行を選択する。
@@ -112,20 +107,17 @@ def createDialog(enhancedmouseevent, xscriptcontext, dialogtitle, formatstring=N
 def addDays(gridcontrol, centerday, col0, daycount=7):
 	todayindex = 7//2  # 今日の日付の位置を決定。切り下げ。
 	startday = centerday - timedelta(days=1)*todayindex  # 開始dateを取得。
-	
-	
-	
+	dategene = (startday+timedelta(days=i) for i in range(daycount))  # daycount分のdateオブジェクトのジェネレーターを取得。
+	weekdays = "月", "火", "水", "木", "金", "土", "日"	
 	settlingdatedigits = journal.VARS.settlingdatedigits
 	if settlingdatedigits:  # シートの年度が取得できた時。
 		y, m, d = settlingdatedigits
 		sdate = date(y-1, m, d) + timedelta(days=1)  # 年度開始日。
 		edate = date(*settlingdatedigits)  # 年度終了日。
-
-			
-			
-	dategene = (startday+timedelta(days=i) for i in range(daycount))  # daycount分のdateオブジェクトのジェネレーターを取得。
-	weekdays = "月", "火", "水", "木", "金", "土", "日"
-	datarows = tuple(zip(col0, ("{}-{}-{}({})".format(i.year, i.month, i.day, weekdays[i.weekday()]) if sdate<=i<=edate else "" for i in dategene)))  # 列インデックス0に語句、列インデックス1に日付を入れる。
+		datetxtgene = ("{}-{}-{}({})".format(i.year, i.month, i.day, weekdays[i.weekday()]) if sdate<=i<=edate else "" for i in dategene)  # 年度開始日と終了日以外には空文字を入れる。	
+	else:	
+		datetxtgene = ("{}-{}-{}({})".format(i.year, i.month, i.day, weekdays[i.weekday()]) for i in dategene) 
+	datarows = tuple(zip(col0, datetxtgene))  # 列インデックス0に語句、列インデックス1に日付を入れる。
 	griddatamodel = gridcontrol.getModel().getPropertyValue("GridDataModel")  # GridDataModel
 	griddatamodel.removeAllRows()  # グリッドコントロールの行を全削除。
 	griddatamodel.addRows(("",)*len(datarows), datarows)  # グリッドに行を追加。	
@@ -158,21 +150,14 @@ class TextListener(unohelper.Base, XTextListener):
 	def textChanged(self, textevent):
 		numericfield = textevent.Source
 		gridcontrol, = self.args
-		
-		
 		todayindex = 7//2  # 本日と同じインデックスを取得。
-		
-		
-		datetxt = gridcontrol.getModel().getPropertyValue("GridDataModel").getCellData(1, todayindex)  # 中央行の日付文字列を取得。
-		
-		if datetxt:
-			centerday = date(*map(int, datetxt.split("(")[0].split("-")))
-		else:
-			
-			
-			
-		
-		
+		griddatamodel = gridcontrol.getModel().getPropertyValue("GridDataModel")
+		datetxt = griddatamodel.getCellData(1, 0)  # 先頭行の日付文字列を取得。
+		if datetxt:  # 先頭行に日付文字列がある時。
+			centerday = date(*map(int, datetxt.split("(")[0].split("-"))) + timedelta(days=todayindex)
+		else:  # 先頭行に日付文字列がない時は最終行から日付文字列を取得する。
+			datetxt = griddatamodel.getCellData(1, griddatamodel.RowCount-1)  # 最終行の日付文字列を取得。
+			centerday = date(*map(int, datetxt.split("(")[0].split("-"))) - timedelta(days=todayindex)
 		val = numericfield.getValue()  # 数値フィールドの値を取得。		
 		diff = val - self.val  # 前値との差を取得。
 		centerday += timedelta(days=7*diff)  # 週を移動。

@@ -9,8 +9,16 @@ def documentOnLoad(xscriptcontext):  # ドキュメントを開いた時。リ�
 	sheets = doc.getSheets()
 	if platform.system()=="Windows":  # Windowsの時はすべてのシートのフォントをMS Pゴシックにする。
 		[i.setPropertyValues(("CharFontName", "CharFontNameAsian"), ("ＭＳ Ｐゴシック", "ＭＳ Ｐゴシック")) for i in sheets]
+	[i.setPropertyValue("CharHeight", 12) for i in sheets]
+	
+	# アクティブなシートを取得してそのシート名が振替伝票ではじまているのならinitSheetを実行する。
+	
 	sheet = sheets["振替伝票"]		
+	
+	
 	doc.getCurrentController().setActiveSheet(sheet)  # 仕訳日誌シートをアクティブにする。	
 	journal.initSheet(sheet, xscriptcontext)
+	
+	
 def documentUnLoad(xscriptcontext):  # ドキュメントを閉じた時。リスナー削除後。
 	pass

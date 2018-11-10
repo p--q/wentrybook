@@ -44,6 +44,8 @@ def activeSpreadsheetChanged(activationevent, xscriptcontext):  # シートが�
 def initSheet(sheet, xscriptcontext):	
 	sheet["A1:A3"].setDataArray((("仕訳日記帳生成",), ("総勘定元帳生成",), ("全補助元帳生成",)))  # よく誤入力されるセルを修正する。つまりボタンになっているセルの修正。
 	sheet["C1"].setDataArray((("決算日",),))
+	getSettlingDay(sheet, xscriptcontext)  # 決算日の処理。
+def getSettlingDay(sheet, xscriptcontext):  # 決算日の処理。
 	settlingdatecell = sheet["C2"]
 	settlingdatevalue = settlingdatecell.getValue()  # 決算日の日付シリアル値を取得。
 	if isinstance(settlingdatevalue, float) and settlingdatevalue>0:
@@ -164,12 +166,17 @@ def mousePressed(enhancedmouseevent, xscriptcontext):  # マウスボタンを�
 						# シートに年度がついていればその次にする。年度がなければ今年の年度をつける。
 						
 						pass
-					
+					elif txt.startswith("決算日を"):
+						datedialog.createDialog(enhancedmouseevent, xscriptcontext, "決算日", "YYYY-MM-DD", callback=callback_getSettlingDayCreator(xscriptcontext))	
 					return False  # セル編集モードにしない。
 				elif r>=VARS.splittedrow and c==VARS.daycolumn:  # 取引日列インデックスの時。
 					datedialog.createDialog(enhancedmouseevent, xscriptcontext, "取引日", "YYYY-MM-DD")	
 					return False  # セル編集モードにしない。
 	return True  # セル編集モードにする。シングルクリックは必ずTrueを返さないといけない。
+def callback_getSettlingDayCreator(xscriptcontext):
+	def callback_getSettlingDay(datatxt):
+		getSettlingDay(VARS.sheet, xscriptcontext)  # 決算日の処理。
+	return callback_getSettlingDay
 def createHojoSheetCreator(headerrows, datarows, createNewSheet):
 	splittedrow = VARS.splittedrow
 	daycolumn = VARS.daycolumn
