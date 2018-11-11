@@ -74,8 +74,8 @@ def mousePressed(enhancedmouseevent, xscriptcontext):  # マウスボタンを�
 						datarows = VARS.sheet[VARS.splittedrow:VARS.emptyrow, VARS.splittedcolumn:VARS.emptycolumn].getDataArray()
 						VARS.sheet[VARS.subtotalrow, VARS.splittedcolumn:VARS.emptycolumn].setDataArray(([sum(filter(lambda x: isinstance(x, float), i)) for i in zip(*datarows)],))  # 列ごとの合計を再計算。
 						datarange = VARS.sheet[VARS.splittedrow:VARS.emptyrow, VARS.sliptotalcolumn]  # 伝票内計列のセル範囲を取得。
-						datarange.setDataArray((sum(filter(lambda x: isinstance(x, float), i[VARS.splittedcolumn:])),) for i in datarows)  # 伝票内合計を再計算。
-						highlightImBalance(xscriptcontext, datarange)  # 不均衡セルをハイライト。						
+						datarange.setDataArray((sum(filter(lambda x: isinstance(x, float), i)),) for i in datarows)  # 伝票内合計を再計算。
+						highlightImBalance(xscriptcontext, datarange)  # 不均衡セルをハイライト。		
 						return False  # セル編集モードにしない。
 					if txt=="仕訳日記帳生成":
 						splittedrow = VARS.splittedrow	
@@ -175,10 +175,25 @@ def mousePressed(enhancedmouseevent, xscriptcontext):  # マウスボタンを�
 					elif txt=="次年度繰越":
 						
 						
+						# 次年度に繰越するか確認する。
+						
+						headerrows, datarows = getDataRows(xscriptcontext)	
+						if not headerrows:
+							return False  # セル編集モードにしない。
+						
+						# シートをまるごとコピーして伝票行を削除。
+						# 列毎小計を前記繰越行に代入。
+						# 列毎小計にもコピー。
+						
+						datarows[VARS.subtotalrow][VARS.splittedcolumn:]
+			
+						
 						# シート名に年度をつける。
 						# シートに年度がついていればその次にする。年度がなければ今年の年度をつける。
 						
-						pass
+					# すでに次年度シートがあるならば、金額のみ繰り越すか確認する。
+						
+					
 						return False  # セル編集モードにしない。
 					elif r==1 and c==VARS.daycolumn:  # 決算日セル。
 						VARS.settlingdatedigits = None
@@ -372,6 +387,10 @@ def getDataRows(xscriptcontext):
 	dispatcher.executeDispatch(controller.getFrame(), ".uno:DataSort", "", 0, props)  # ディスパッチコマンドでソート。
 	controller.select(selection)  # 元のセルを選択し直す。									
 	datarows = VARS.sheet[:VARS.emptyrow, :VARS.emptycolumn].getDataArray()  # 全データ行を取得。
+	VARS.sheet[VARS.subtotalrow, VARS.splittedcolumn:VARS.emptycolumn].setDataArray(([sum(filter(lambda x: isinstance(x, float), i)) for i in zip(*[j[VARS.splittedcolumn:] for j in datarows[VARS.splittedrow:]])],))  # 列ごとの合計を再計算。
+	datarange = VARS.sheet[VARS.splittedrow:VARS.emptyrow, VARS.sliptotalcolumn]  # 伝票内計列のセル範囲を取得。
+	datarange.setDataArray((sum(filter(lambda x: isinstance(x, float), i[VARS.splittedcolumn:])),) for i in datarows[VARS.splittedrow:])  # 伝票内合計を再計算。
+	highlightImBalance(xscriptcontext, datarange)  # 不均衡セルをハイライト。		
 	gene = zip(*datarows[VARS.splittedrow:])  # 固定列行以下の列のデータのイテレーター。
 	for dummy in filter(None, next(gene)):  # 伝票内計が0か空セル以外の値をイテレート。
 		commons.showErrorMessageBox(controller, "貸方と借方が一致しない行があるので\n処理を中止します。")	
