@@ -28,6 +28,7 @@ class Journal():  # シート固有の値。
 		self.settlingdatedigits = None  # 決算日の日付の年月日のリスト。
 	def setSheet(self, sheet):  # 逐次変化する値。
 		self.sheet = sheet
+		self.settlingcell = sheet["C1"]  # 決算日セル。
 		cellranges = sheet[self.splittedrow:, self.slipnocolumn].queryContentCells(CellFlags.VALUE)  # 伝票番号列の日付列が入っているセルに限定して抽出。
 		self.emptyrow = cellranges.getRangeAddresses()[-1].EndRow + 1  # 伝票番号列の最終行インデックス+1を取得。
 		columnedges = []
@@ -47,7 +48,7 @@ def initSheet(sheet, xscriptcontext):
 	sheet["D2"].setString("小計再計算")
 	getSettlingDay(sheet, xscriptcontext)  # 決算日の処理。
 def getSettlingDay(sheet, xscriptcontext):  # 決算日の処理。
-	settlingdatecell = sheet["C2"]
+	settlingdatecell = VARS.settlingcell
 	settlingdatevalue = settlingdatecell.getValue()  # 決算日の日付シリアル値を取得。
 	if isinstance(settlingdatevalue, float) and settlingdatevalue>0:
 		ctx = xscriptcontext.getComponentContext()  # コンポーネントコンテクストの取得。
@@ -70,10 +71,11 @@ def mousePressed(enhancedmouseevent, xscriptcontext):  # マウスボタンを�
 					doc = xscriptcontext.getDocument()
 					controller = doc.getCurrentController()						
 					txt = selection.getString()
+					sheet = VARS.sheet		
 					if txt=="小計再計算":
-						datarows = VARS.sheet[VARS.splittedrow:VARS.emptyrow, VARS.splittedcolumn:VARS.emptycolumn].getDataArray()
-						VARS.sheet[VARS.subtotalrow, VARS.splittedcolumn:VARS.emptycolumn].setDataArray(([sum(filter(lambda x: isinstance(x, float), i)) for i in zip(*datarows)],))  # 列ごとの合計を再計算。
-						datarange = VARS.sheet[VARS.splittedrow:VARS.emptyrow, VARS.sliptotalcolumn]  # 伝票内計列のセル範囲を取得。
+						datarows = sheet[VARS.splittedrow:VARS.emptyrow, VARS.splittedcolumn:VARS.emptycolumn].getDataArray()
+						sheet[VARS.subtotalrow, VARS.splittedcolumn:VARS.emptycolumn].setDataArray(([sum(filter(lambda x: isinstance(x, float), i)) for i in zip(*datarows)],))  # 列ごとの合計を再計算。
+						datarange = sheet[VARS.splittedrow:VARS.emptyrow, VARS.sliptotalcolumn]  # 伝票内計列のセル範囲を取得。
 						datarange.setDataArray((sum(filter(lambda x: isinstance(x, float), i)),) for i in datarows)  # 伝票内合計を再計算。
 						highlightImBalance(xscriptcontext, datarange)  # 不均衡セルをハイライト。		
 						return False  # セル編集モードにしない。
@@ -82,7 +84,7 @@ def mousePressed(enhancedmouseevent, xscriptcontext):  # マウスボタンを�
 						daycolumn = VARS.daycolumn							
 						slipnocolumn = VARS.slipnocolumn
 						splittedcolumn = VARS.splittedcolumn		
-						sheet = VARS.sheet							
+											
 						kozakamokuname = "仕訳日記帳"
 						newkingakucolumns = 2, 4  # 金額書式にする列インデックスのタプル。
 						newtekiyocolumn = 5  # 摘要列インデックス。
@@ -173,25 +175,67 @@ def mousePressed(enhancedmouseevent, xscriptcontext):  # マウスボタンを�
 						saveNewDoc(doc, newdoc, newdocname)	
 						return False  # セル編集モードにしない。			
 					elif txt=="次年度繰越":
-						
-						
-						# 次年度に繰越するか確認する。
-						
-						headerrows, datarows = getDataRows(xscriptcontext)	
-						if not headerrows:
+						if not VARS.settlingdatedigits:  # 決算日がない時。
+							commons.showErrorMessageBox(controller, "決算日セルに決算日を入力してください。\n処理を中止します。")	
+							return False  # セル編集モードにしない。		
+						settlingdatedigits = VARS.settlingdatedigits					
+						y, m, d = settlingdatedigits  # 現シートの決算日の年月日を取得。
+						msg = "決算{0}-{1}-{2}を次年度{}-{1}-{2}に更新します。".format(*settlingdatedigits, y+1)  # 次年度決算日。2/29には未対応。
+						componentwindow = doc.getCurrentController().ComponentWindow
+						toolkit = componentwindow.getToolkit()
+						msgbox = toolkit.createMessageBox(componentwindow, QUERYBOX, MessageBoxButtons.BUTTONS_YES_NO+MessageBoxButtons.DEFAULT_BUTTON_YES, "WEntryBook", msg)
+						if msgbox.execute()!=MessageBoxResults.YES:  # Yes以外の時はここで終わる。		
+							return False  # セル編集モードにしない。			
+						headerrows, datarows = getDataRows(xscriptcontext)  # 科目ヘッダー行とすべてのデータ行を取得。
+						if not headerrows:  # 伝票書式のエラーに引っかかった時ここで終わる。
 							return False  # セル編集モードにしない。
 						
-						# シートをまるごとコピーして伝票行を削除。
+						# 新元入金の計算。
+						
+						# 元入金+（収益列計-経費列計）+事業主借ー事業主貸
+						
+						
+						
+						settledayno = "{}{:0>2}{:0>2}".format(*settlingdatedigits)
+						sheetname = sheet.getName()
+						if not sheetname.endswith(settledayno):
+							sheet.setName("".join([sheetname, settledayno]))
+						sheets = doc.getSheets()
+						newsheetname = "振替伝票{}{:0>2}{:0>2}".format(y+1, m, d)
+						if newsheetname in sheets:
+							msg = "{}はすでに存在します。\n金額のみ繰り越しますか?".format(newsheetname)
+							msgbox = toolkit.createMessageBox(componentwindow, QUERYBOX, MessageBoxButtons.BUTTONS_YES_NO+MessageBoxButtons.DEFAULT_BUTTON_YES, "WEntryBook", msg)
+							if msgbox.execute()!=MessageBoxResults.YES:  # Yes以外の時はここで終わる。		
+								return False  # セル編集モードにしない。			
+							newsheet = sheets[newsheetname]
+							
+							
+							
+							
+													
+						else:
+							sheets.copyByName(sheetname, newsheetname, len(sheets))  # 現シートのコピーを最後に挿入。
+							newsheet = sheets[newsheetname]
+							newsheet[VARS.splittedrow:, :].clearContents(CellFlags.VALUE+CellFlags.DATETIME+CellFlags.STRING+CellFlags.ANNOTATION+CellFlags.FORMULA)
+						
+						
+						
+						
+			
+						
+	
+						
+						# シートをまるごとコピーして伝票行を削除。決算日を入力。
 						# 列毎小計を前記繰越行に代入。
 						# 列毎小計にもコピー。
 						
 						datarows[VARS.subtotalrow][VARS.splittedcolumn:]
 			
 						
-						# シート名に年度をつける。
-						# シートに年度がついていればその次にする。年度がなければ今年の年度をつける。
 						
-					# すでに次年度シートがあるならば、金額のみ繰り越すか確認する。
+						
+						
+					
 						
 					
 						return False  # セル編集モードにしない。
@@ -450,7 +494,7 @@ def changesOccurred(changesevent, xscriptcontext):  # Sourceにはドキュメ�
 			VARS.setSheet(selection.getSpreadSheet())
 		sheet = VARS.sheet
 		rangeaddress = selection.getRangeAddress()
-		cellranges = sheet["C2"].queryIntersection(rangeaddress)  # 決算日セルの選択範囲と重なる部分のセル範囲コレクションを取得。
+		cellranges = VARS.settlingcell.queryIntersection(rangeaddress)  # 決算日セルの選択範囲と重なる部分のセル範囲コレクションを取得。
 		if len(cellranges):  # 決算日セルが変化した時。
 			getSettlingDay(sheet, xscriptcontext)
 		cellranges = sheet[VARS.splittedrow:, :VARS.emptycolumn].queryIntersection(rangeaddress)  # 固定行以下と科目右列端との選択範囲と重なる部分のセル範囲コレクションを取得。
