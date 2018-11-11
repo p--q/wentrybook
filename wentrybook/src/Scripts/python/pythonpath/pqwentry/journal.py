@@ -3,8 +3,8 @@
 # 振替伝票シートについて。import pydevd; pydevd.settrace(stdoutToServer=True, stderrToServer=True)
 from . import commons, datedialog, dialogcommons, historydialog
 import unohelper, os
-from itertools import chain, compress, count, zip_longest
-from datetime import datetime
+from itertools import chain, compress, count, filterfalse, zip_longest
+from datetime import date, datetime, timedelta
 from com.sun.star.awt import MouseButton, MessageBoxButtons, MessageBoxResults  # 定数
 from com.sun.star.awt.MessageBoxType import QUERYBOX  # enum
 from com.sun.star.beans import PropertyValue  # Struct
@@ -43,7 +43,8 @@ def activeSpreadsheetChanged(activationevent, xscriptcontext):  # シートが�
 	initSheet(activationevent.ActiveSheet, xscriptcontext)
 def initSheet(sheet, xscriptcontext):	
 	sheet["A1:A3"].setDataArray((("仕訳日記帳生成",), ("総勘定元帳生成",), ("全補助元帳生成",)))  # よく誤入力されるセルを修正する。つまりボタンになっているセルの修正。
-	sheet["C1"].setDataArray((("決算日",),))
+	sheet["C1:D1"].setDataArray((("決算日", "次年度繰越"),))
+	sheet["D2"].setString("小計再計算")
 	getSettlingDay(sheet, xscriptcontext)  # 決算日の処理。
 def getSettlingDay(sheet, xscriptcontext):  # 決算日の処理。
 	settlingdatecell = sheet["C2"]
@@ -53,10 +54,11 @@ def getSettlingDay(sheet, xscriptcontext):  # 決算日の処理。
 		smgr = ctx.getServiceManager()  # サービスマネージャーの取得。			
 		functionaccess = smgr.createInstanceWithContext("com.sun.star.sheet.FunctionAccess", ctx)  # シート関数利用のため。	
 		VARS.settlingdatedigits = [int(functionaccess.callFunction(i, (settlingdatevalue,))) for i in ("YEAR", "MONTH", "DAY")]
+		settlingdatecell.setPropertyValue("CellBackColor", -1)
 	elif not settlingdatevalue:
 		settlingdatecell.setString("決算日をこのセルに入力してください。")
 		createFormatKey = commons.formatkeyCreator(xscriptcontext.getDocument())
-		settlingdatecell.setPropertyValue("NumberFormat", createFormatKey("YYYY-MM-DD"))  
+		settlingdatecell.setPropertyValues(("NumberFormat", "CellBackColor"), (createFormatKey("YYYY-MM-DD"), commons.COLORS["violet"]))
 def mousePressed(enhancedmouseevent, xscriptcontext):  # マウスボタンを押した時。controllerにコンテナウィンドウはない。
 	if enhancedmouseevent.Buttons==MouseButton.LEFT:  # 左クリックの時。
 		selection = enhancedmouseevent.Target  # ターゲットのセルを取得。
@@ -68,6 +70,13 @@ def mousePressed(enhancedmouseevent, xscriptcontext):  # マウスボタンを�
 					doc = xscriptcontext.getDocument()
 					controller = doc.getCurrentController()						
 					txt = selection.getString()
+					if txt=="小計再計算":
+						datarows = VARS.sheet[VARS.splittedrow:VARS.emptyrow, VARS.splittedcolumn:VARS.emptycolumn].getDataArray()
+						VARS.sheet[VARS.subtotalrow, VARS.splittedcolumn:VARS.emptycolumn].setDataArray(([sum(filter(lambda x: isinstance(x, float), i)) for i in zip(*datarows)],))  # 列ごとの合計を再計算。
+						datarange = VARS.sheet[VARS.splittedrow:VARS.emptyrow, VARS.sliptotalcolumn]  # 伝票内計列のセル範囲を取得。
+						datarange.setDataArray((sum(filter(lambda x: isinstance(x, float), i[VARS.splittedcolumn:])),) for i in datarows)  # 伝票内合計を再計算。
+						highlightImBalance(xscriptcontext, datarange)  # 不均衡セルをハイライト。						
+						return False  # セル編集モードにしない。
 					if txt=="仕訳日記帳生成":
 						splittedrow = VARS.splittedrow	
 						daycolumn = VARS.daycolumn							
@@ -121,7 +130,8 @@ def mousePressed(enhancedmouseevent, xscriptcontext):  # マウスボタンを�
 						indicator.end()  # reset()の前にend()しておかないと元に戻らない。
 						indicator.reset()  # ここでリセットしておかないと例外が発生した時にリセットする機会がない。					
 						newdocname = "仕訳日記帳_{}.ods".format(datetime.now().strftime("%Y%m%d%H%M%S"))
-						return saveNewDoc(doc, newdoc, newdocname)		
+						saveNewDoc(doc, newdoc, newdocname)		
+						return False  # セル編集モードにしない。
 					elif txt=="総勘定元帳生成":
 						newkingakucolumns = 3, 4, 5  # 金額書式にする列インデックスのタプル。
 						newtekiyocolumn = 2  # 摘要列インデックス。
@@ -140,7 +150,8 @@ def mousePressed(enhancedmouseevent, xscriptcontext):  # マウスボタンを�
 						indicator.end()  # reset()の前にend()しておかないと元に戻らない。
 						indicator.reset()  # ここでリセットしておかないと例外が発生した時にリセットする機会がない。					
 						newdocname = "総勘定元帳_{}.ods".format(datetime.now().strftime("%Y%m%d%H%M%S"))
-						return saveNewDoc(doc, newdoc, newdocname)					
+						saveNewDoc(doc, newdoc, newdocname)		
+						return False  # セル編集モードにしない。			
 					elif txt=="全補助元帳生成":
 						newheadermergecolumns = 2, 3, 4, 5  # セル結合するヘッダー行の列インデックスのタプル。
 						newkingakucolumns = 3, 4, 5  # 金額書式にする列インデックスのタプル。
@@ -159,16 +170,20 @@ def mousePressed(enhancedmouseevent, xscriptcontext):  # マウスボタンを�
 						indicator.end()  # reset()の前にend()しておかないと元に戻らない。
 						indicator.reset()  # ここでリセットしておかないと例外が発生した時にリセットする機会がない。							
 						newdocname = "全補助元帳_{}.ods".format(datetime.now().strftime("%Y%m%d%H%M%S"))
-						return saveNewDoc(doc, newdoc, newdocname)				
+						saveNewDoc(doc, newdoc, newdocname)	
+						return False  # セル編集モードにしない。			
 					elif txt=="次年度繰越":
+						
 						
 						# シート名に年度をつける。
 						# シートに年度がついていればその次にする。年度がなければ今年の年度をつける。
 						
 						pass
-					elif txt.startswith("決算日を"):
-						datedialog.createDialog(enhancedmouseevent, xscriptcontext, "決算日", "YYYY-MM-DD", callback=callback_getSettlingDayCreator(xscriptcontext))	
-					return False  # セル編集モードにしない。
+						return False  # セル編集モードにしない。
+					elif r==1 and c==VARS.daycolumn:  # 決算日セル。
+						VARS.settlingdatedigits = None
+						datedialog.createDialog(enhancedmouseevent, xscriptcontext, "決算日", callback=callback_getSettlingDayCreator(xscriptcontext))	
+						return False  # セル編集モードにしない。					
 				elif r>=VARS.splittedrow and c==VARS.daycolumn:  # 取引日列インデックスの時。
 					datedialog.createDialog(enhancedmouseevent, xscriptcontext, "取引日", "YYYY-MM-DD")	
 					return False  # セル編集モードにしない。
@@ -282,7 +297,7 @@ def saveNewDoc(doc, newdoc, newdocname):
 		newdoc.close(True)
 		controller = doc.getCurrentController()	
 		commons.showErrorMessageBox(controller, "この科目の伝票がありません。")	
-		return False  # セル編集モードにしない。
+		return
 	del sheets["Sheet1"]  # 新規ドキュメントのデフォルトシートを削除する。 
 	dirpath = os.path.dirname(unohelper.fileUrlToSystemPath(doc.getURL()))  # このドキュメントのあるディレクトリのフルパスを取得。
 	systempath = os.path.join(dirpath, "帳簿", newdocname)  # 新規ドキュメントのフルパスを取得。
@@ -291,7 +306,7 @@ def saveNewDoc(doc, newdoc, newdocname):
 		componentwindow = doc.getCurrentController().ComponentWindow
 		msgbox = componentwindow.getToolkit().createMessageBox(componentwindow, QUERYBOX, MessageBoxButtons.BUTTONS_YES_NO+MessageBoxButtons.DEFAULT_BUTTON_YES, "WEntryBook", msg)
 		if msgbox.execute()!=MessageBoxResults.YES:  # Yes以外の時はここで終わる。		
-			return False  # セル編集モードにしない。
+			return
 	newdoc.getStyleFamilies()["PageStyles"]["Default"].setPropertyValue("HeaderIsOn", False)  # 印刷時ヘッダーを付けない。
 	newdoc.storeAsURL(unohelper.systemPathToFileUrl(systempath), ())  # 新規ドキュメントを保存。	
 def createNewSheetCreator(newdoc, newkamokucolumnidxes, newkingakucolumns, newheadermergecolumns, newtekiyocolumn):		
@@ -358,15 +373,23 @@ def getDataRows(xscriptcontext):
 	controller.select(selection)  # 元のセルを選択し直す。									
 	datarows = VARS.sheet[:VARS.emptyrow, :VARS.emptycolumn].getDataArray()  # 全データ行を取得。
 	gene = zip(*datarows[VARS.splittedrow:])  # 固定列行以下の列のデータのイテレーター。
-	for dummy in filter(lambda x: x, next(gene)):  # 伝票内計が0か空セル以外の値をイテレート。
+	for dummy in filter(None, next(gene)):  # 伝票内計が0か空セル以外の値をイテレート。
 		commons.showErrorMessageBox(controller, "貸方と借方が一致しない行があるので\n処理を中止します。")	
 		return ("",)*2
-	for dummy in filter(lambda x: not x, next(gene)):  # 伝票番号列がFalseのセルをイテレート。
+	for dummy in filterfalse(None, next(gene)):  # 伝票番号列がFalseのセルをイテレート。
 		commons.showErrorMessageBox(controller, "伝票番号のない行があるので\n処理を中止します。")	
 		return ("",)*2	
-	for dummy in filter(lambda x: not x, next(gene)):  # 取引日列がFalseのセルをイテレート。
+	days = next(gene)  # 伝票の取引日列のタプルを取得。
+	for dummy in filterfalse(None, days):  # 取引日列がFalseのセルをイテレート。
 		commons.showErrorMessageBox(controller, "取引日のない行があるので\n処理を中止します。")	
 		return ("",)*2		
+	dates = getDateSection()
+	if all(dates):  # 決算日がある時。
+		functionaccess = smgr.createInstanceWithContext("com.sun.star.sheet.FunctionAccess", ctx)  # シート関数利用のため。	
+		sday, eday = [functionaccess.callFunction("DATE", (i.year, i.month, i.day)) for i in dates]
+		if days[0]<sday or eday<days[-1]:
+			commons.showErrorMessageBox(controller, "会計年度外の日付の伝票があるので\n処理を中止します。")	
+			return ("",)*2		
 	if not datarows[VARS.kamokurow][VARS.splittedcolumn]:  # 科目行先頭列のセルがTrueでない時。
 		commons.showErrorMessageBox(controller, "科目行の先頭セルには科目名が入っていないといけません。")	
 		return ("",)*2							
@@ -398,12 +421,23 @@ def changesOccurred(changesevent, xscriptcontext):  # Sourceにはドキュメ�
 		if change.Accessor=="cell-change":  # セルの値が変化した時。
 			selection = change.ReplacedElement  # 値を変更したセルを取得。	
 			break
+		elif change.Accessor=="delete-rows":  # 行を削除した時。
+			VARS.setSheet(VARS.sheet)  # 最下行を再取得するため。
+			datarows = VARS.sheet[VARS.splittedrow:VARS.emptyrow, VARS.splittedcolumn:VARS.emptycolumn].getDataArray()
+			VARS.sheet[VARS.subtotalrow, VARS.splittedcolumn:VARS.emptycolumn].setDataArray(([sum(filter(lambda x: isinstance(x, float), i)) for i in zip(*datarows)],))  # 列ごとの合計を再計算。
+			break
 	if selection:  # セルとは限らずセル範囲のときもある。シートからペーストしたときなど。テキストをペーストした時は発火しない。
+		if not hasattr(VARS, "sheet"):  # シートを開いてすぐ入力したときはselectionChanged()発火前になるので。
+			VARS.setSheet(selection.getSpreadSheet())
 		sheet = VARS.sheet
-		cellranges = sheet[VARS.splittedrow:, :VARS.emptycolumn].queryIntersection(selection.getRangeAddress())  # 固定行以下と科目右列端との選択範囲と重なる部分のセル範囲コレクションを取得。
+		rangeaddress = selection.getRangeAddress()
+		cellranges = sheet["C2"].queryIntersection(rangeaddress)  # 決算日セルの選択範囲と重なる部分のセル範囲コレクションを取得。
+		if len(cellranges):  # 決算日セルが変化した時。
+			getSettlingDay(sheet, xscriptcontext)
+		cellranges = sheet[VARS.splittedrow:, :VARS.emptycolumn].queryIntersection(rangeaddress)  # 固定行以下と科目右列端との選択範囲と重なる部分のセル範囲コレクションを取得。
 		if len(cellranges):  # 変化したセル範囲がある時。
 			VARS.setSheet(sheet)  # 逐次変化する値を取得。伝票番号列の最終行を再取得したい。
-			deadnogene = (j for j in count(1) if j not in list(chain.from_iterable(sheet[VARS.splittedrow:VARS.emptyrow, VARS.slipnocolumn].getDataArray())))
+			deadnogene = (j for j in count(1) if j not in list(chain.from_iterable(sheet[VARS.splittedrow:VARS.emptyrow, VARS.slipnocolumn].getDataArray())))  # 空伝票番号のイテレーター。
 			createFormatKey = commons.formatkeyCreator(xscriptcontext.getDocument())
 			for rangeaddress in cellranges.getRangeAddresses():  # セル範囲アドレスをイテレート。
 				datarange = sheet[rangeaddress.StartRow:rangeaddress.EndRow+1, :VARS.emptycolumn]  # 行毎に処理するセル範囲を取得。
@@ -413,14 +447,14 @@ def changesOccurred(changesevent, xscriptcontext):  # Sourceにはドキュメ�
 					sliptotal = sum(filter(lambda x: isinstance(x, float), datarow[VARS.splittedcolumn:]))  # 行の合計を取得。
 					slipno = datarow[VARS.slipnocolumn] or next(deadnogene)  # 伝票番号を取得。
 					newdatarows.append((sliptotal, slipno))
-				datarange[:, :VARS.daycolumn].setDataArray(newdatarows)
+				datarange[:, :VARS.daycolumn].setDataArray(newdatarows)  # 取引日列の左列を代入。
 				VARS.setSheet(sheet)  # 逐次変化する値を取得。伝票番号列の最終行を再取得したい。
 				datarange = sheet[VARS.splittedrow:VARS.emptyrow, rangeaddress.StartColumn:rangeaddress.EndColumn+1]  # 列毎に処理するセル範囲を取得。
 				sheet[VARS.subtotalrow, rangeaddress.StartColumn:rangeaddress.EndColumn+1].setDataArray(([sum(filter(lambda x: isinstance(x, float), i)) for i in zip(*datarange.getDataArray())],))  # 列ごとの合計を取得。
 			highlightDupeNo(xscriptcontext)  # 重複伝票番号セルをハイライトする。
 			datarange = sheet[VARS.splittedrow:VARS.emptyrow, VARS.sliptotalcolumn]  # 伝票内計列のセル範囲を取得。
 			highlightImBalance(xscriptcontext, datarange)  # 不均衡セルをハイライト。
-			sheet[VARS.subtotalrow:VARS.emptyrow, VARS.splittedcolumn:VARS.emptycolumn].setPropertyValue("NumberFormat", createFormatKey("#,##0;[BLUE]-#,##0"))
+			sheet[VARS.subtotalrow:VARS.emptyrow, VARS.splittedcolumn:VARS.emptycolumn].setPropertyValue("NumberFormat", createFormatKey("#,##0;[BLUE]-#,##0"))  # 科目毎計行を含めて数字書式を設定。
 def highlightDupeNo(xscriptcontext):  # 重複伝票番号セルをハイライトする。
 	sheet = VARS.sheet
 	splittedrow = VARS.splittedrow
@@ -635,3 +669,11 @@ def callback_sliphistoryCreator(xscriptcontext):
 		datarows = sheet[VARS.subtotalrow:VARS.emptyrow, min(recalccols):max(recalccols)+1].getDataArray()  # 個別の列だけ再計算するのは面倒なので、連続する列すべてを再計算する。
 		sheet[VARS.subtotalrow, min(recalccols):max(recalccols)+1].setDataArray(([sum(filter(lambda x: isinstance(x, float), i)) for i in zip(*datarows[1:])],))  # 列ごとの合計を取得。			
 	return callback_sliphistory	
+def getDateSection():
+	settlingdatedigits = VARS.settlingdatedigits
+	if settlingdatedigits:  # シートの年度が取得できた時。
+		y, m, d = settlingdatedigits
+		sdate = date(y-1, m, d) + timedelta(days=1)  # 年度開始日。
+		edate = date(*settlingdatedigits)  # 年度終了日。
+		return sdate, edate
+	return (None,)*2

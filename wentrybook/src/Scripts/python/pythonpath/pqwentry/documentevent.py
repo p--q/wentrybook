@@ -7,18 +7,14 @@ from . import journal
 def documentOnLoad(xscriptcontext):  # ドキュメントを開いた時。リスナー追加後。
 	doc = xscriptcontext.getDocument()  # ドキュメントのモデルを取得。 
 	sheets = doc.getSheets()
-	if platform.system()=="Windows":  # Windowsの時はすべてのシートのフォントをMS Pゴシックにする。
-		[i.setPropertyValues(("CharFontName", "CharFontNameAsian"), ("ＭＳ Ｐゴシック", "ＭＳ Ｐゴシック")) for i in sheets]
-	[i.setPropertyValue("CharHeight", 12) for i in sheets]
-	
-	# アクティブなシートを取得してそのシート名が振替伝票ではじまているのならinitSheetを実行する。
-	
-	sheet = sheets["振替伝票"]		
-	
-	
-	doc.getCurrentController().setActiveSheet(sheet)  # 仕訳日誌シートをアクティブにする。	
+	charheight = 12  # フォントの大きさ。
+	if platform.system()=="Windows":  # Windowsの時
+		[i.setPropertyValues(("CharFontName", "CharFontNameAsian", "CharHeight"), ("ＭＳ Ｐゴシック", "ＭＳ Ｐゴシック", charheight)) for i in sheets]
+	else:
+		[i.setPropertyValue("CharHeight", charheight) for i in sheets]
+	sheetname = next(i for i in sorted(sheets.getElementNames(), reverse=True) if i.startswith("振替伝票"))  # 最新年度の振替伝票シート名を取得。
+	sheet = sheets[sheetname]			
+	doc.getCurrentController().setActiveSheet(sheet)
 	journal.initSheet(sheet, xscriptcontext)
-	
-	
 def documentUnLoad(xscriptcontext):  # ドキュメントを閉じた時。リスナー削除後。
 	pass

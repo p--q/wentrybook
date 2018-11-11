@@ -1,6 +1,7 @@
 #!/opt/libreoffice5.4/program/python
 # -*- coding: utf-8 -*-
 import os
+from datetime import date, timedelta
 from pqwentry import documentevent, journal  # Contextmenuの呼び出しは相対インポートではエラーになる。
 from com.sun.star.awt import MessageBoxButtons  # 定数
 from com.sun.star.awt.MessageBoxType import ERRORBOX  # enum
@@ -10,6 +11,7 @@ from com.sun.star.table import BorderLineStyle  # 定数
 COLORS = {\
 		"magenta3": 0xFF00FF,\
 		"black": 0x000000,\
+		"silver": 0xC0C0C0,\
 		"violet": 0x9999FF}  # 色の16進数。	
 def getModule(sheetname):  # シート名に応じてモジュールを振り分ける関数。
 	if sheetname is None:  # シート名でNoneが返ってきた時はドキュメントイベントとする。

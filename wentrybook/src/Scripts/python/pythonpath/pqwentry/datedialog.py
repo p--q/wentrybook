@@ -83,11 +83,8 @@ def createDialog(enhancedmouseevent, xscriptcontext, dialogtitle, formatstring=N
 	if centerday is None:
 		centerday = date.today()
 		col0[todayindex-1:todayindex+2] = "昨日", "今日", "明日"  # 列インデックス0に入れる文字列を取得。
-	settlingdatedigits = journal.VARS.settlingdatedigits
-	if settlingdatedigits:  # シートの年度が取得できた時。
-		y, m, d = settlingdatedigits
-		sdate = date(y-1, m, d) + timedelta(days=1)  # 年度開始日。
-		edate = date(*settlingdatedigits)  # 年度終了日。			
+	sdate, edate = journal.getDateSection()
+	if sdate and edate:		
 		numericfield1.setMin((sdate-centerday).days//7)  # 最小週数を設定。
 		numericfield1.setMax((edate-centerday).days//7)  # 最大週数を設定。
 	addDays(gridcontrol1, centerday, col0)  # グリッドコントロールに行を入れる。	
@@ -109,11 +106,8 @@ def addDays(gridcontrol, centerday, col0, daycount=7):
 	startday = centerday - timedelta(days=1)*todayindex  # 開始dateを取得。
 	dategene = (startday+timedelta(days=i) for i in range(daycount))  # daycount分のdateオブジェクトのジェネレーターを取得。
 	weekdays = "月", "火", "水", "木", "金", "土", "日"	
-	settlingdatedigits = journal.VARS.settlingdatedigits
-	if settlingdatedigits:  # シートの年度が取得できた時。
-		y, m, d = settlingdatedigits
-		sdate = date(y-1, m, d) + timedelta(days=1)  # 年度開始日。
-		edate = date(*settlingdatedigits)  # 年度終了日。
+	sdate, edate = journal.getDateSection()
+	if sdate and edate:
 		datetxtgene = ("{}-{}-{}({})".format(i.year, i.month, i.day, weekdays[i.weekday()]) if sdate<=i<=edate else "" for i in dategene)  # 年度開始日と終了日以外には空文字を入れる。	
 	else:	
 		datetxtgene = ("{}-{}-{}({})".format(i.year, i.month, i.day, weekdays[i.weekday()]) for i in dategene) 
@@ -166,7 +160,7 @@ class TextListener(unohelper.Base, XTextListener):
 			if centerday==date.today():
 				col0[todayindex-1:todayindex+2] = "昨日", "今日", "明日"  # 列インデックス0に入れる文字列を取得。
 			else:	
-				col0[todayindex] = "基準日"
+				col0[todayindex] = "セル値"
 		else:
 			txt = "{}週後" if val>0 else "{}週前" 
 			col0[todayindex] = txt.format(int(abs(val)))  # valはfloatなので小数点が入ってくる。		
@@ -251,4 +245,3 @@ class MenuListener(unohelper.Base, XMenuListener):
 		self.itemSelected(menuevent)
 	def disposing(self, eventobject):
 		pass
-		
