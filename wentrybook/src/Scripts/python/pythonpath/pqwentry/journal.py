@@ -14,41 +14,59 @@ from com.sun.star.table import BorderLineStyle, CellVertJustify2  # 定数
 from com.sun.star.table.CellHoriJustify import CENTER, LEFT  # enum
 from com.sun.star.ui import ActionTriggerSeparatorType  # 定数
 from com.sun.star.ui.ContextMenuInterceptorAction import EXECUTE_MODIFIED  # enum
+from com.sun.star.util import XModifyListener
 class Journal():  # シート固有の値。
 	def __init__(self):
-		self.kamokurow = 2  # 科目行インデックス。
-		self.hojokamokurow = 3  # 補助科目行インデックス。
-		self.subtotalrow = 4  # 科目毎計行インデックス。
-		self.splittedrow = 5  # 固定行インデックス。
+		self.kamokurow = 2  # 科目行インデックス。この上行は科目分類行、下行は補助科目行。
+		self.splittedrow = 5  # 固定行インデックス。この上行は列別小計行。
 		self.sliptotalcolumn = 0  # 伝票内計列インデックス。
-		self.slipnocolumn = 1  # 伝票番号列インデックス。
-		self.daycolumn = 2  # 取引日列インデックス。
-		self.tekiyocolumn = 3  # 摘要列インデックス。
-		self.splittedcolumn = 4  # 固定列インデックス。
+		self.daycolumn = 2  # 取引日列インデックス。この左列は伝票番号列、右列が摘要列。
+		self.splittedcolumn = 4  # 固定列インデックス。	
 		self.settlingdatedigits = None  # 決算日の日付の年月日のリスト。
-	def setSheet(self, sheet):  # 逐次変化する値。
+	def setSheet(self, sheet):  # シートの逐次変化する値。
 		self.sheet = sheet
-		self.settlingcell = sheet["C1"]  # 決算日セル。
-		cellranges = sheet[self.splittedrow:, self.slipnocolumn].queryContentCells(CellFlags.VALUE)  # 伝票番号列の日付列が入っているセルに限定して抽出。
-		self.emptyrow = cellranges.getRangeAddresses()[-1].EndRow + 1  # 伝票番号列の最終行インデックス+1を取得。
+		cellranges = sheet[self.splittedrow:, self.daycolumn-1].queryContentCells(CellFlags.VALUE)  # 伝票番号列の日付列が入っているセルに限定して抽出。
+		if len(cellranges):
+			self.emptyrow = cellranges.getRangeAddresses()[-1].EndRow + 1  # 伝票番号列の最終行インデックス+1を取得。
 		columnedges = []
 		cellranges = sheet[self.kamokurow, self.splittedcolumn:].queryContentCells(CellFlags.STRING) 
 		if len(cellranges):
 			columnedges.append(cellranges.getRangeAddresses()[-1].EndColumn+1)  # 科目行の右端+1インデックスを取得。
-		cellranges = sheet[self.hojokamokurow, self.splittedcolumn:].queryContentCells(CellFlags.STRING) 
+		cellranges = sheet[self.kamokurow+1, self.splittedcolumn:].queryContentCells(CellFlags.STRING) 
 		if len(cellranges):
 			columnedges.append(cellranges.getRangeAddresses()[-1].EndColumn+1)  # 補助科目行の右端+1インデックスを取得。
-		self.emptycolumn = max(columnedges, default=self.splittedcolumn)  # 科目行または補助科目行の右端空列を取得。
+		if columnedges:
+			self.emptycolumn = max(columnedges)  # 科目行または補助科目行の右端空列を取得。
 VARS = Journal()
 def activeSpreadsheetChanged(activationevent, xscriptcontext):  # シートがアクティブになった時。ドキュメントを開いた時は発火しない。
 	initSheet(activationevent.ActiveSheet, xscriptcontext)
 def initSheet(sheet, xscriptcontext):	
-	sheet["A1:A3"].setDataArray((("仕訳日記帳生成",), ("総勘定元帳生成",), ("全補助元帳生成",)))  # よく誤入力されるセルを修正する。つまりボタンになっているセルの修正。
-	sheet["C1:D1"].setDataArray((("決算日", "次年度繰越"),))
-	sheet["D2"].setString("小計再計算")
-	getSettlingDay(sheet, xscriptcontext)  # 決算日の処理。
-def getSettlingDay(sheet, xscriptcontext):  # 決算日の処理。
-	settlingdatecell = VARS.settlingcell
+	sheet["A1:A2"].setDataArray((("メニュー",), ("再計算",)))  # 入力間違いしやすいボタンセルの値を代入。
+	VARS.setSheet(sheet)  # 逐次変化するシートの値を取得。
+	
+	
+	
+	
+	getSettlingDay(xscriptcontext)  # 決算日の処理。
+	
+class RangeModifyListener(unohelper.Base, XModifyListener):
+	def __init__(self, xscriptcontext):
+		self.xscriptcontext = xscriptcontext
+	def modified(self, eventobject):
+		
+# 		import pydevd; pydevd.settrace(stdoutToServer=True, stderrToServer=True)
+		datarows = VARS.sheet[VARS.splittedrow:, VARS.splittedcolumn:].getDataArray()  # 全データ行を取得。
+# 		datarows = eventobject.Source.getDataArray()  # 全データ行を取得。
+		VARS.sheet[VARS.subtotalrow, VARS.splittedcolumn:VARS.emptycolumn].setDataArray(([sum(filter(lambda x: isinstance(x, float), i)) for i in zip(*[j[VARS.splittedcolumn:] for j in datarows[VARS.splittedrow:]])],))  # 列ごとの合計を再計算。
+		datarange = VARS.sheet[VARS.splittedrow:VARS.emptyrow, VARS.sliptotalcolumn]  # 伝票内計列のセル範囲を取得。
+		datarange.setDataArray((sum(filter(lambda x: isinstance(x, float), i[VARS.splittedcolumn:])),) for i in datarows[VARS.splittedrow:])  # 伝票内合計を再計算。
+		highlightImBalance(self.xscriptcontext, datarange)  # 不均衡セルをハイライト。	
+
+
+	def disposing(self, eventobject):
+		eventobject.Source.removeModifyListener(self)
+def getSettlingDay(xscriptcontext):  # 決算日の処理。
+	settlingdatecell = VARS.sheet[1, VARS.daycolumn]  # 決算日セルを取得。
 	settlingdatevalue = settlingdatecell.getValue()  # 決算日の日付シリアル値を取得。
 	if isinstance(settlingdatevalue, float) and settlingdatevalue>0:
 		ctx = xscriptcontext.getComponentContext()  # コンポーネントコンテクストの取得。
@@ -488,46 +506,46 @@ def drowBorders(selection):  # ターゲットを交点とする行列全体の�
 	sheet[rangeaddress.StartRow:rangeaddress.EndRow+1, :VARS.emptycolumn].setPropertyValue("TableBorder2", topbottomtableborder)  # 行の上下に枠線を引く
 	sheet[:, rangeaddress.StartColumn:rangeaddress.EndColumn+1].setPropertyValue("TableBorder2", leftrighttableborder)  # 列の左右に枠線を引く。
 	selection.setPropertyValue("TableBorder2", tableborder2)  # 選択範囲の消えた枠線を引き直す。		
-def changesOccurred(changesevent, xscriptcontext):  # Sourceにはドキュメントが入る。マクロで変更した時は発火しない。	
-	selection = None
-	for change in changesevent.Changes:
-		if change.Accessor=="cell-change":  # セルの値が変化した時。
-			selection = change.ReplacedElement  # 値を変更したセルを取得。	
-			break
-		elif change.Accessor=="delete-rows":  # 行を削除した時。
-			VARS.setSheet(VARS.sheet)  # 最下行を再取得するため。
-			datarows = VARS.sheet[VARS.splittedrow:VARS.emptyrow, VARS.splittedcolumn:VARS.emptycolumn].getDataArray()
-			VARS.sheet[VARS.subtotalrow, VARS.splittedcolumn:VARS.emptycolumn].setDataArray(([sum(filter(lambda x: isinstance(x, float), i)) for i in zip(*datarows)],))  # 列ごとの合計を再計算。
-			break
-	if selection:  # セルとは限らずセル範囲のときもある。シートからペーストしたときなど。テキストをペーストした時は発火しない。
-		if not hasattr(VARS, "sheet"):  # シートを開いてすぐ入力したときはselectionChanged()発火前になるので。
-			VARS.setSheet(selection.getSpreadSheet())
-		sheet = VARS.sheet
-		rangeaddress = selection.getRangeAddress()
-		cellranges = VARS.settlingcell.queryIntersection(rangeaddress)  # 決算日セルの選択範囲と重なる部分のセル範囲コレクションを取得。
-		if len(cellranges):  # 決算日セルが変化した時。
-			getSettlingDay(sheet, xscriptcontext)
-		cellranges = sheet[VARS.splittedrow:, :VARS.emptycolumn].queryIntersection(rangeaddress)  # 固定行以下と科目右列端との選択範囲と重なる部分のセル範囲コレクションを取得。
-		if len(cellranges):  # 変化したセル範囲がある時。
-			VARS.setSheet(sheet)  # 逐次変化する値を取得。伝票番号列の最終行を再取得したい。
-			deadnogene = (j for j in count(1) if j not in list(chain.from_iterable(sheet[VARS.splittedrow:VARS.emptyrow, VARS.slipnocolumn].getDataArray())))  # 空伝票番号のイテレーター。
-			createFormatKey = commons.formatkeyCreator(xscriptcontext.getDocument())
-			for rangeaddress in cellranges.getRangeAddresses():  # セル範囲アドレスをイテレート。
-				datarange = sheet[rangeaddress.StartRow:rangeaddress.EndRow+1, :VARS.emptycolumn]  # 行毎に処理するセル範囲を取得。
-				datarange[:, VARS.daycolumn].setPropertyValue("NumberFormat", createFormatKey("YYYY-MM-DD"))  # 取引日列の書式を設定。
-				newdatarows = []  # 処理後の伝票内計列と伝票番号列の行データを取得するリスト。
-				for datarow in datarange.getDataArray():  # 各行をイテレート。
-					sliptotal = sum(filter(lambda x: isinstance(x, float), datarow[VARS.splittedcolumn:]))  # 行の合計を取得。
-					slipno = datarow[VARS.slipnocolumn] or next(deadnogene)  # 伝票番号を取得。
-					newdatarows.append((sliptotal, slipno))
-				datarange[:, :VARS.daycolumn].setDataArray(newdatarows)  # 取引日列の左列を代入。
-				VARS.setSheet(sheet)  # 逐次変化する値を取得。伝票番号列の最終行を再取得したい。
-				datarange = sheet[VARS.splittedrow:VARS.emptyrow, rangeaddress.StartColumn:rangeaddress.EndColumn+1]  # 列毎に処理するセル範囲を取得。
-				sheet[VARS.subtotalrow, rangeaddress.StartColumn:rangeaddress.EndColumn+1].setDataArray(([sum(filter(lambda x: isinstance(x, float), i)) for i in zip(*datarange.getDataArray())],))  # 列ごとの合計を取得。
-			highlightDupeNo(xscriptcontext)  # 重複伝票番号セルをハイライトする。
-			datarange = sheet[VARS.splittedrow:VARS.emptyrow, VARS.sliptotalcolumn]  # 伝票内計列のセル範囲を取得。
-			highlightImBalance(xscriptcontext, datarange)  # 不均衡セルをハイライト。
-			sheet[VARS.subtotalrow:VARS.emptyrow, VARS.splittedcolumn:VARS.emptycolumn].setPropertyValue("NumberFormat", createFormatKey("#,##0;[BLUE]-#,##0"))  # 科目毎計行を含めて数字書式を設定。
+# def changesOccurred(changesevent, xscriptcontext):  # Sourceにはドキュメントが入る。マクロで変更した時は発火しない。	
+# 	selection = None
+# 	for change in changesevent.Changes:
+# 		if change.Accessor=="cell-change":  # セルの値が変化した時。
+# 			selection = change.ReplacedElement  # 値を変更したセルを取得。	
+# 			break
+# 		elif change.Accessor=="delete-rows":  # 行を削除した時。
+# 			VARS.setSheet(VARS.sheet)  # 最下行を再取得するため。
+# 			datarows = VARS.sheet[VARS.splittedrow:VARS.emptyrow, VARS.splittedcolumn:VARS.emptycolumn].getDataArray()
+# 			VARS.sheet[VARS.subtotalrow, VARS.splittedcolumn:VARS.emptycolumn].setDataArray(([sum(filter(lambda x: isinstance(x, float), i)) for i in zip(*datarows)],))  # 列ごとの合計を再計算。
+# 			break
+# 	if selection:  # セルとは限らずセル範囲のときもある。シートからペーストしたときなど。テキストをペーストした時は発火しない。
+# 		if not hasattr(VARS, "sheet"):  # シートを開いてすぐ入力したときはselectionChanged()発火前になるので。
+# 			VARS.setSheet(selection.getSpreadSheet())
+# 		sheet = VARS.sheet
+# 		rangeaddress = selection.getRangeAddress()
+# 		cellranges = VARS.settlingcell.queryIntersection(rangeaddress)  # 決算日セルの選択範囲と重なる部分のセル範囲コレクションを取得。
+# 		if len(cellranges):  # 決算日セルが変化した時。
+# 			getSettlingDay(sheet, xscriptcontext)
+# 		cellranges = sheet[VARS.splittedrow:, :VARS.emptycolumn].queryIntersection(rangeaddress)  # 固定行以下と科目右列端との選択範囲と重なる部分のセル範囲コレクションを取得。
+# 		if len(cellranges):  # 変化したセル範囲がある時。
+# 			VARS.setSheet(sheet)  # 逐次変化する値を取得。伝票番号列の最終行を再取得したい。
+# 			deadnogene = (j for j in count(1) if j not in list(chain.from_iterable(sheet[VARS.splittedrow:VARS.emptyrow, VARS.slipnocolumn].getDataArray())))  # 空伝票番号のイテレーター。
+# 			createFormatKey = commons.formatkeyCreator(xscriptcontext.getDocument())
+# 			for rangeaddress in cellranges.getRangeAddresses():  # セル範囲アドレスをイテレート。
+# 				datarange = sheet[rangeaddress.StartRow:rangeaddress.EndRow+1, :VARS.emptycolumn]  # 行毎に処理するセル範囲を取得。
+# 				datarange[:, VARS.daycolumn].setPropertyValue("NumberFormat", createFormatKey("YYYY-MM-DD"))  # 取引日列の書式を設定。
+# 				newdatarows = []  # 処理後の伝票内計列と伝票番号列の行データを取得するリスト。
+# 				for datarow in datarange.getDataArray():  # 各行をイテレート。
+# 					sliptotal = sum(filter(lambda x: isinstance(x, float), datarow[VARS.splittedcolumn:]))  # 行の合計を取得。
+# 					slipno = datarow[VARS.slipnocolumn] or next(deadnogene)  # 伝票番号を取得。
+# 					newdatarows.append((sliptotal, slipno))
+# 				datarange[:, :VARS.daycolumn].setDataArray(newdatarows)  # 取引日列の左列を代入。
+# 				VARS.setSheet(sheet)  # 逐次変化する値を取得。伝票番号列の最終行を再取得したい。
+# 				datarange = sheet[VARS.splittedrow:VARS.emptyrow, rangeaddress.StartColumn:rangeaddress.EndColumn+1]  # 列毎に処理するセル範囲を取得。
+# 				sheet[VARS.subtotalrow, rangeaddress.StartColumn:rangeaddress.EndColumn+1].setDataArray(([sum(filter(lambda x: isinstance(x, float), i)) for i in zip(*datarange.getDataArray())],))  # 列ごとの合計を取得。
+# 			highlightDupeNo(xscriptcontext)  # 重複伝票番号セルをハイライトする。
+# 			datarange = sheet[VARS.splittedrow:VARS.emptyrow, VARS.sliptotalcolumn]  # 伝票内計列のセル範囲を取得。
+# 			highlightImBalance(xscriptcontext, datarange)  # 不均衡セルをハイライト。
+# 			sheet[VARS.subtotalrow:VARS.emptyrow, VARS.splittedcolumn:VARS.emptycolumn].setPropertyValue("NumberFormat", createFormatKey("#,##0;[BLUE]-#,##0"))  # 科目毎計行を含めて数字書式を設定。
 def highlightDupeNo(xscriptcontext):  # 重複伝票番号セルをハイライトする。
 	sheet = VARS.sheet
 	splittedrow = VARS.splittedrow
