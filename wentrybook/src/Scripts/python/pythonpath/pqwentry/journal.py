@@ -53,13 +53,11 @@ class RangeModifyListener(unohelper.Base, XModifyListener):
 	def __init__(self, xscriptcontext):
 		self.xscriptcontext = xscriptcontext
 	def modified(self, eventobject):
-		
-# 		import pydevd; pydevd.settrace(stdoutToServer=True, stderrToServer=True)
-		datarows = VARS.sheet[VARS.splittedrow:, VARS.splittedcolumn:].getDataArray()  # 全データ行を取得。
-# 		datarows = eventobject.Source.getDataArray()  # 全データ行を取得。
-		VARS.sheet[VARS.subtotalrow, VARS.splittedcolumn:VARS.emptycolumn].setDataArray(([sum(filter(lambda x: isinstance(x, float), i)) for i in zip(*[j[VARS.splittedcolumn:] for j in datarows[VARS.splittedrow:]])],))  # 列ごとの合計を再計算。
+		VARS.setSheet(VARS.sheet)  # 最終行と列を取得し直す。
+		datarows = VARS.sheet[VARS.splittedrow:VARS.emptyrow, VARS.splittedcolumn:VARS.emptycolumn].getDataArray()  # 全データを取得。
+		VARS.sheet[VARS.splittedrow-1, VARS.splittedcolumn:VARS.emptycolumn].setDataArray(([sum(filter(lambda x: isinstance(x, float), i)) for i in zip(*datarows)],))  # 列ごとの合計を再計算。
 		datarange = VARS.sheet[VARS.splittedrow:VARS.emptyrow, VARS.sliptotalcolumn]  # 伝票内計列のセル範囲を取得。
-		datarange.setDataArray((sum(filter(lambda x: isinstance(x, float), i[VARS.splittedcolumn:])),) for i in datarows[VARS.splittedrow:])  # 伝票内合計を再計算。
+		datarange.setDataArray((sum(filter(lambda x: isinstance(x, float), i)),) for i in datarows)  # 伝票内合計を再計算。
 		highlightImBalance(self.xscriptcontext, datarange)  # 不均衡セルをハイライト。	
 
 
@@ -486,7 +484,7 @@ def getDataRows(xscriptcontext):
 		return ("",)*2							
 	kamokus = []
 	[kamokus.append(i if i else kamokus[-1]) for i in datarows[VARS.kamokurow][VARS.splittedcolumn:]]  # 科目行をすべて埋める。
-	headerrows = range(VARS.splittedcolumn, VARS.emptycolumn), kamokus, datarows[VARS.hojokamokurow][VARS.splittedcolumn:]  # 列インデックス行, 科目行、補助科目行。
+	headerrows = range(VARS.splittedcolumn, VARS.emptycolumn), kamokus, datarows[VARS.kamokurou+1][VARS.splittedcolumn:]  # 列インデックス行, 科目行、補助科目行。
 	return headerrows, datarows
 def selectionChanged(eventobject, xscriptcontext):  # 矢印キーでセル移動した時も発火する。
 	selection = eventobject.Source.getSelection()	
@@ -582,12 +580,12 @@ def notifyContextMenuExecute(contextmenuexecuteevent, xscriptcontext):  # 右ク
 	if contextmenuname=="cell":  # セルのとき。セル範囲も含む。
 		if VARS.splittedcolumn<=c<VARS.emptycolumn:  # 科目行か補助科目行に値がある列の時。
 			if selection.supportsService("com.sun.star.sheet.SheetCell"):  # 単独セルの時のみ。
-				datarows = sheet[VARS.kamokurow:VARS.hojokamokurow+1, c].getDataArray()  # 科目行と補助科目行を取得。
+				datarows = sheet[VARS.kamokurow:VARS.kamokurou+1+1, c].getDataArray()  # 科目行と補助科目行を取得。
 				kamoku = datarows[0][0]
 				hojokamoku = datarows[1][0]
 				if r==VARS.kamokurow and kamoku:  # 科目行かつ科目行に値があるとき。
 					addMenuentry("ActionTrigger", {"Text": "{}の勘定元帳生成".format(kamoku), "CommandURL": baseurl.format("entry2")}) 
-				elif r==VARS.hojokamokurow and hojokamoku:  # 補助科目行かつ補助科目行に値があるとき。:
+				elif r==VARS.kamokurou+1 and hojokamoku:  # 補助科目行かつ補助科目行に値があるとき。:
 					addMenuentry("ActionTrigger", {"Text": "{}の補助元帳生成".format(hojokamoku), "CommandURL": baseurl.format("entry3")}) 
 				elif VARS.splittedrow<=r<=VARS.emptyrow:  # 取引日列が入力済で科目行か補助科目行に値がある列のセルの時。
 					if sheet[r, VARS.sliptotalcolumn].getValue()!=0:  # 伝票内計が0でない時のみ。空セルも0として扱われる。
@@ -691,7 +689,7 @@ def contextMenuEntries(entrynum, xscriptcontext):  # コンテクストメニュ
 			items = [datarows[i][0]]  # 摘要を取得。
 			for j, val in enumerate(datarows[i][1:], start=1):  # リストのインデックスと値をイテレート。
 				if val!="":  # 空セルでない時。つまり金額が入っている時。
-					hojokamoku = datarows[VARS.hojokamokurow][j]  # 補助科目を取得。
+					hojokamoku = datarows[VARS.kamokurou+1][j]  # 補助科目を取得。
 					annotation = sheet[i, VARS.tekiyocolumn+j].getAnnotation().getString()  # セルコメントを取得。
 					for k in range(j, 0, -1):  # 科目行を左にイテレート。
 						kamoku = datarows[VARS.kamokurow][k]  # 科目を取得。
@@ -720,7 +718,7 @@ def settle(cell):
 def callback_sliphistoryCreator(xscriptcontext):		
 	def callback_sliphistory(gridcelltxt):
 		sheet = VARS.sheet
-		headerrows = sheet[VARS.kamokurow:VARS.hojokamokurow+1, :VARS.emptycolumn].getDataArray()  # 科目行と補助科目行を取得。
+		headerrows = sheet[VARS.kamokurow:VARS.kamokurou+1+1, :VARS.emptycolumn].getDataArray()  # 科目行と補助科目行を取得。
 		controller = xscriptcontext.getDocument().getCurrentController()  # コントローラの取得。
 		selection = controller.getSelection()  # 選択範囲を取得。選択範囲はセルのみ。	
 		r = selection.getCellAddress().Row
