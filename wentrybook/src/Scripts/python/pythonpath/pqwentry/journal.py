@@ -22,7 +22,8 @@ class Journal():  # シート固有の値。
 		self.sliptotalcolumn = 0  # 伝票内計列インデックス。
 		self.daycolumn = 2  # 取引日列インデックス。この左列は伝票番号列、右列が摘要列。
 		self.splittedcolumn = 4  # 固定列インデックス。	
-		self.settlingdatedigits = None  # 決算日の日付の年月日のリスト。
+		self.settrlingdaycelladdress = "C2"  # 決算日セルの文字アドレス。
+# 		self.settlingdatedigits = None  # 決算日の日付の年月日の数値のキャッシュ。
 	def setSheet(self, sheet):  # シートの逐次変化する値。
 		self.sheet = sheet
 		cellranges = sheet[self.splittedrow:, self.daycolumn-1].queryContentCells(CellFlags.VALUE)  # 伝票番号列の日付列が入っているセルに限定して抽出。
@@ -46,36 +47,67 @@ def initSheet(sheet, xscriptcontext):
 	
 	
 	
-	
-	getSettlingDay(xscriptcontext)  # 決算日の処理。
-	
-class RangeModifyListener(unohelper.Base, XModifyListener):
-	def __init__(self, xscriptcontext):
-		self.xscriptcontext = xscriptcontext
-	def modified(self, eventobject):
-		VARS.setSheet(VARS.sheet)  # 最終行と列を取得し直す。
-		datarows = VARS.sheet[VARS.splittedrow:VARS.emptyrow, VARS.splittedcolumn:VARS.emptycolumn].getDataArray()  # 全データを取得。
-		VARS.sheet[VARS.splittedrow-1, VARS.splittedcolumn:VARS.emptycolumn].setDataArray(([sum(filter(lambda x: isinstance(x, float), i)) for i in zip(*datarows)],))  # 列ごとの合計を再計算。
-		datarange = VARS.sheet[VARS.splittedrow:VARS.emptyrow, VARS.sliptotalcolumn]  # 伝票内計列のセル範囲を取得。
-		datarange.setDataArray((sum(filter(lambda x: isinstance(x, float), i)),) for i in datarows)  # 伝票内合計を再計算。
-		highlightImBalance(self.xscriptcontext, datarange)  # 不均衡セルをハイライト。	
 
 
+class SettlingDayModifyListener(unohelper.Base, XModifyListener):
+	def __init__(self, xscriptcontext):	
+		self.formatkey = commons.formatkeyCreator(xscriptcontext.getDocument())("YYYY-MM-DD")
+	def modified(self, eventobject):  # 決算日セルが変化したら発火するメソッド。eventobject.Sourceには全シートの決算日セルのセル範囲コレクションが入っている。
+		settlingdatecell = VARS.sheet[VARS.settrlingdaycelladdress]  # 決算日セルを取得。
+		settlingdatecell.setPropertyValue("NumberFormat", self.formatkey)
+		txt = settlingdatecell.getString()
+		datedigits = txt.split(txt[4])  # 2014-5-4などを年、月、日の数字に分割。
+		cellbackcolor = -1 if len(datedigits)==3 else commons.COLORS["violet"]
+		settlingdatecell.setPropertyValues("CellBackColor", cellbackcolor)
 	def disposing(self, eventobject):
 		eventobject.Source.removeModifyListener(self)
-def getSettlingDay(xscriptcontext):  # 決算日の処理。
-	settlingdatecell = VARS.sheet[1, VARS.daycolumn]  # 決算日セルを取得。
-	settlingdatevalue = settlingdatecell.getValue()  # 決算日の日付シリアル値を取得。
-	if isinstance(settlingdatevalue, float) and settlingdatevalue>0:
-		ctx = xscriptcontext.getComponentContext()  # コンポーネントコンテクストの取得。
-		smgr = ctx.getServiceManager()  # サービスマネージャーの取得。			
-		functionaccess = smgr.createInstanceWithContext("com.sun.star.sheet.FunctionAccess", ctx)  # シート関数利用のため。	
-		VARS.settlingdatedigits = [int(functionaccess.callFunction(i, (settlingdatevalue,))) for i in ("YEAR", "MONTH", "DAY")]
-		settlingdatecell.setPropertyValue("CellBackColor", -1)
-	elif not settlingdatevalue:
-		settlingdatecell.setString("決算日をこのセルに入力してください。")
-		createFormatKey = commons.formatkeyCreator(xscriptcontext.getDocument())
-		settlingdatecell.setPropertyValues(("NumberFormat", "CellBackColor"), (createFormatKey("YYYY-MM-DD"), commons.COLORS["violet"]))
+class ValueModifyListener(unohelper.Base, XModifyListener):
+	def __init__(self, xscriptcontext):
+		self.formatkey = commons.formatkeyCreator(xscriptcontext.getDocument())("#,##0;[BLUE]-#,##0")
+	def modified(self, eventobject):  # 固定行以下固定列右のセルが変化すると発火するメソッド。サブジェクトのどこが変化したかはわからない。
+		VARS.setSheet(VARS.sheet)  # 最終行と列を取得し直す。
+		datarows = VARS.sheet[VARS.splittedrow:VARS.emptyrow, VARS.splittedcolumn:VARS.emptycolumn].getDataArray()  # 伝票金額の全データ行を取得。
+		VARS.sheet[VARS.splittedrow-1, VARS.splittedcolumn:VARS.emptycolumn].setDataArray(([sum(filter(lambda x: isinstance(x, float), i)) for i in zip(*datarows)],))  # 列ごとの合計を再計算。
+		datarange = VARS.sheet[VARS.splittedrow:VARS.emptyrow, VARS.sliptotalcolumn]  # 伝票内計列のセル範囲を取得。
+		datarange.setDataArray((sum(filter(lambda x: isinstance(x, float), i)),) for i in datarows)  # 伝票内計列を再計算。
+		datarange.setPropertyValues(("CellBackColor", "NumberFormat"), (-1, self.formatkey))  # 伝票内計列の背景色をクリア, ついでに書式を設定。
+		searchdescriptor = VARS.sheet.createSearchDescriptor()
+		searchdescriptor.setPropertyValue("SearchRegularExpression", True)  # 正規表現を有効にする。
+		searchdescriptor.setSearchString("[^0]")  # 0以外のセルを取得。戻り値はない。	
+		cellranges = datarange.queryContentCells(CellFlags.VALUE).findAll(searchdescriptor)  # 値のあるセルから0以外が入っているセル範囲コレクションを取得。見つからなかった時はNoneが返る。
+		if cellranges:
+			cellranges.setPropertyValue("CellBackColor", commons.COLORS["violet"])  # 不均衡セルをハイライト。				
+	def disposing(self, eventobject):
+		eventobject.Source.removeModifyListener(self)
+class SlipNoyModifyListener(unohelper.Base, XModifyListener):
+	def __init__(self, xscriptcontext):	
+		self.formatkey = commons.formatkeyCreator(xscriptcontext.getDocument())("YYYY-MM-DD")
+	def modified(self, eventobject):  # 決算日セルが変化したら発火するメソッド。eventobject.Sourceには全シートの決算日セルのセル範囲コレクションが入っている。
+		settlingdatecell = VARS.sheet[VARS.settrlingdaycelladdress]  # 決算日セルを取得。
+# 		settlingdatecell.setPropertyValue("NumberFormat", self.formatkey)
+# 		txt = settlingdatecell.getString()
+# 		datedigits = txt.split(txt[4])  # 2014-5-4などを年、月、日の数字に分割。
+# 		cellbackcolor = -1 if len(datedigits)==3 else commons.COLORS["violet"]
+# 		settlingdatecell.setPropertyValues("CellBackColor", cellbackcolor)
+	def disposing(self, eventobject):
+		eventobject.Source.removeModifyListener(self)		
+		
+		
+		
+		
+# def getSettlingDay(xscriptcontext):  # 決算日の処理。
+# 	settlingdatecell = VARS.sheet[1, VARS.daycolumn]  # 決算日セルを取得。
+# 	settlingdatevalue = settlingdatecell.getValue()  # 決算日の日付シリアル値を取得。
+# 	if isinstance(settlingdatevalue, float) and settlingdatevalue>0:
+# 		ctx = xscriptcontext.getComponentContext()  # コンポーネントコンテクストの取得。
+# 		smgr = ctx.getServiceManager()  # サービスマネージャーの取得。			
+# 		functionaccess = smgr.createInstanceWithContext("com.sun.star.sheet.FunctionAccess", ctx)  # シート関数利用のため。	
+# 		VARS.settlingdatedigits = [int(functionaccess.callFunction(i, (settlingdatevalue,))) for i in ("YEAR", "MONTH", "DAY")]
+# 		settlingdatecell.setPropertyValue("CellBackColor", -1)
+# 	elif not settlingdatevalue:
+# 		settlingdatecell.setString("決算日をこのセルに入力してください。")
+# 		createFormatKey = commons.formatkeyCreator(xscriptcontext.getDocument())
+# 		settlingdatecell.setPropertyValues(("NumberFormat", "CellBackColor"), (createFormatKey("YYYY-MM-DD"), commons.COLORS["violet"]))
 def mousePressed(enhancedmouseevent, xscriptcontext):  # マウスボタンを押した時。controllerにコンテナウィンドウはない。
 	if enhancedmouseevent.Buttons==MouseButton.LEFT:  # 左クリックの時。
 		selection = enhancedmouseevent.Target  # ターゲットのセルを取得。
@@ -93,7 +125,7 @@ def mousePressed(enhancedmouseevent, xscriptcontext):  # マウスボタンを�
 						sheet[VARS.subtotalrow, VARS.splittedcolumn:VARS.emptycolumn].setDataArray(([sum(filter(lambda x: isinstance(x, float), i)) for i in zip(*datarows)],))  # 列ごとの合計を再計算。
 						datarange = sheet[VARS.splittedrow:VARS.emptyrow, VARS.sliptotalcolumn]  # 伝票内計列のセル範囲を取得。
 						datarange.setDataArray((sum(filter(lambda x: isinstance(x, float), i)),) for i in datarows)  # 伝票内合計を再計算。
-						highlightImBalance(xscriptcontext, datarange)  # 不均衡セルをハイライト。		
+# 						highlightImBalance(xscriptcontext, datarange)  # 不均衡セルをハイライト。		
 						return False  # セル編集モードにしない。
 					elif txt=="メニュー":
 						defaultrows = "仕訳日記帳生成", "総勘定元帳生成", "全補助元帳生成", "試算表生成", "次年度繰越"
@@ -275,7 +307,8 @@ def mousePressed(enhancedmouseevent, xscriptcontext):  # マウスボタンを�
 	return True  # セル編集モードにする。シングルクリックは必ずTrueを返さないといけない。
 def callback_getSettlingDayCreator(xscriptcontext):
 	def callback_getSettlingDay(datatxt):
-		getSettlingDay(VARS.sheet, xscriptcontext)  # 決算日の処理。
+		pass
+# 		getSettlingDay(VARS.sheet, xscriptcontext)  # 決算日の処理。
 	return callback_getSettlingDay
 def createHojoSheetCreator(headerrows, datarows, createNewSheet):
 	splittedrow = VARS.splittedrow
@@ -460,7 +493,7 @@ def getDataRows(xscriptcontext):
 	VARS.sheet[VARS.subtotalrow, VARS.splittedcolumn:VARS.emptycolumn].setDataArray(([sum(filter(lambda x: isinstance(x, float), i)) for i in zip(*[j[VARS.splittedcolumn:] for j in datarows[VARS.splittedrow:]])],))  # 列ごとの合計を再計算。
 	datarange = VARS.sheet[VARS.splittedrow:VARS.emptyrow, VARS.sliptotalcolumn]  # 伝票内計列のセル範囲を取得。
 	datarange.setDataArray((sum(filter(lambda x: isinstance(x, float), i[VARS.splittedcolumn:])),) for i in datarows[VARS.splittedrow:])  # 伝票内合計を再計算。
-	highlightImBalance(xscriptcontext, datarange)  # 不均衡セルをハイライト。		
+# 	highlightImBalance(xscriptcontext, datarange)  # 不均衡セルをハイライト。		
 	gene = zip(*datarows[VARS.splittedrow:])  # 固定列行以下の列のデータのイテレーター。
 	for dummy in filter(None, next(gene)):  # 伝票内計が0か空セル以外の値をイテレート。
 		commons.showErrorMessageBox(controller, "貸方と借方が一致しない行があるので\n処理を中止します。")	
@@ -564,14 +597,14 @@ def highlightDupeNo(xscriptcontext):  # 重複伝票番号セルをハイライ�
 		cellranges = xscriptcontext.getDocument().createInstance("com.sun.star.sheet.SheetCellRanges")  # com.sun.star.sheet.SheetCellRangesをインスタンス化。
 		cellranges.addRangeAddresses([sheet[i, slipnocolumn].getRangeAddress() for i in duperows], False)
 		cellranges.setPropertyValue("CellBackColor", commons.COLORS["silver"])  # 重複伝票番号の背景色を変える。	
-def highlightImBalance(xscriptcontext, datarange):  # 不均衡セルをハイライト。
-	datarange.setPropertyValues(("CellBackColor", "NumberFormat"), (-1, commons.formatkeyCreator(xscriptcontext.getDocument())("#,##0;[BLUE]-#,##0")))  # 背景色をクリア, ついでに書式を設定。
-	searchdescriptor = VARS.sheet.createSearchDescriptor()
-	searchdescriptor.setPropertyValue("SearchRegularExpression", True)  # 正規表現を有効にする。
-	searchdescriptor.setSearchString("[^0]")  # 0以外のセルを取得。戻り値はない。	
-	cellranges = datarange.queryContentCells(CellFlags.VALUE).findAll(searchdescriptor)  # 値のあるセルから0以外が入っているセル範囲コレクションを取得。見つからなかった時はNoneが返る。
-	if cellranges:
-		cellranges.setPropertyValue("CellBackColor", commons.COLORS["violet"])	
+# def highlightImBalance(xscriptcontext, datarange):  # 不均衡セルをハイライト。
+# 	datarange.setPropertyValues(("CellBackColor", "NumberFormat"), (-1, commons.formatkeyCreator(xscriptcontext.getDocument())("#,##0;[BLUE]-#,##0")))  # 背景色をクリア, ついでに書式を設定。
+# 	searchdescriptor = VARS.sheet.createSearchDescriptor()
+# 	searchdescriptor.setPropertyValue("SearchRegularExpression", True)  # 正規表現を有効にする。
+# 	searchdescriptor.setSearchString("[^0]")  # 0以外のセルを取得。戻り値はない。	
+# 	cellranges = datarange.queryContentCells(CellFlags.VALUE).findAll(searchdescriptor)  # 値のあるセルから0以外が入っているセル範囲コレクションを取得。見つからなかった時はNoneが返る。
+# 	if cellranges:
+# 		cellranges.setPropertyValue("CellBackColor", commons.COLORS["violet"])	
 def notifyContextMenuExecute(contextmenuexecuteevent, xscriptcontext):  # 右クリックメニュー。	
 	contextmenuname, addMenuentry, baseurl, selection = commons.contextmenuHelper(VARS, contextmenuexecuteevent, xscriptcontext)
 	celladdress = selection[0, 0].getCellAddress()  # 選択範囲の左上角のセルのアドレスを取得。
