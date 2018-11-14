@@ -23,11 +23,12 @@ def documentOnLoad(xscriptcontext):  # ドキュメントを開いた時。リ�
 	valuerangeaddresses = []
 	sheetnames = []
 	for i in sheets:
-		if i.startswith("振替伝票"):
-			sheetnames.append(i.getName())
+		sheetname = i.getName()
+		if sheetname.startswith("振替伝票"):
+			sheetnames.append(sheetname)
 			setSheetProps(i)
 			settlingdayrangeaddresses.append(i[settrlingdaycelladdress].getRangeAddress())
-			slipnorangeaddresses.append(i[splittedrow:, slipnocolumn])
+			slipnorangeaddresses.append(i[splittedrow:, slipnocolumn].getRangeAddress())
 			valuerangeaddresses.append(i[splittedrow:, splittedcolumn:].getRangeAddress())
 	global MODIFYLISTENERS			
 	cellranges = doc.createInstance("com.sun.star.sheet.SheetCellRanges")  # セル範囲コレクション。
@@ -37,25 +38,17 @@ def documentOnLoad(xscriptcontext):  # ドキュメントを開いた時。リ�
 	MODIFYLISTENERS.append((cellranges, settlingdaymodifylistener))	
 	cellranges = doc.createInstance("com.sun.star.sheet.SheetCellRanges")  # セル範囲コレクション。
 	cellranges.addRangeAddresses(slipnorangeaddresses, False)
-	
-	cellranges.addModifyListener(valuemodifylistener)
-	MODIFYLISTENERS.append((cellranges, valuemodifylistener))
+	slipnomodifylistener = journal.SlipNoModifyListener(xscriptcontext)
+	cellranges.addModifyListener(slipnomodifylistener)
+	MODIFYLISTENERS.append((cellranges, slipnomodifylistener))
 	cellranges = doc.createInstance("com.sun.star.sheet.SheetCellRanges")  # セル範囲コレクション。
 	cellranges.addRangeAddresses(valuerangeaddresses, False)
 	valuemodifylistener = journal.ValueModifyListener(xscriptcontext)  # 伝票の金額につけるリスナー。	
 	cellranges.addModifyListener(valuemodifylistener)
 	MODIFYLISTENERS.append((cellranges, valuemodifylistener))
-
-
-	
-	
-	sheetname = next(i for i in sorted(sheets.getElementNames(), reverse=True) if i.startswith("振替伝票"))  # 最新年度の振替伝票シート名を取得。
-	sheet = sheets[sheetname]			
+	sheet = sheets[sorted(sheetnames)[-1]]  # 最新年度の振替伝票シートを取得。			
 	doc.getCurrentController().setActiveSheet(sheet)
 	journal.initSheet(sheet, xscriptcontext)
-
-	
-	
 def documentUnLoad(xscriptcontext):  # ドキュメントを閉じた時。リスナー削除後。
 	for subject, modifylistener in MODIFYLISTENERS:
 		subject.removeModifyListener(modifylistener)
