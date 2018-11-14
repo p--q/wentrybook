@@ -25,9 +25,9 @@ class Journal():  # シート固有の値。
 		self.settrlingdaycelladdress = "C2"  # 決算日セルの文字アドレス。
 	def setSheet(self, sheet):  # シートの逐次変化する値。
 		self.sheet = sheet
-		cellranges = sheet[self.splittedrow:, self.daycolumn-1].queryContentCells(CellFlags.VALUE)  # 伝票番号列の日付列が入っているセルに限定して抽出。
+		cellranges = sheet[self.splittedrow:, self.daycolumn].queryContentCells(CellFlags.DATETIME)  # 取引日列の日付が入っているセルに限定して抽出。
 		if len(cellranges):
-			self.emptyrow = cellranges.getRangeAddresses()[-1].EndRow + 1  # 伝票番号列の最終行インデックス+1を取得。
+			self.emptyrow = cellranges.getRangeAddresses()[-1].EndRow + 1  # 取引日列の最終行インデックス+1を取得。
 		columnedges = []
 		cellranges = sheet[self.kamokurow, self.splittedcolumn:].queryContentCells(CellFlags.STRING) 
 		if len(cellranges):
@@ -81,7 +81,17 @@ class SlipNoModifyListener(unohelper.Base, XModifyListener):
 		splittedrow = VARS.splittedrow
 		VARS.setSheet(VARS.sheet)  # 最終行と列を取得し直す。
 		VARS.sheet[VARS.splittedrow:, VARS.daycolumn-1].setPropertyValue("CellBackColor", -1)  # 伝票番号列の背景色をクリア。
-		sliprows = VARS.sheet[VARS.splittedrow:VARS.emptyrow, VARS.daycolumn-1].getDataArray()  # 伝票番号列の行のタプルを取得。
+		datarange = VARS.sheet[VARS.splittedrow:VARS.emptyrow, VARS.daycolumn-1]
+		sliprows = list(datarange.getDataArray())  # 伝票番号列の行をリストにして取得。
+		i = ("",)
+		if i in sliprows:
+			deadnogene = (j for j in count(1) if j not in list(chain.from_iterable(sliprows)))  # 空伝票番号のイテレーター。
+			j = 0
+			while i in sliprows[j:]:
+				j = sliprows.index(i, j)
+				sliprows[j] = next(deadnogene),
+				j += 1
+			datarange.setDataArray(sliprows)		
 		sliprowsset = set(sliprows)  # 重複行を削除した集合を取得。		
 		duperows = []  # 重複している伝票番号がある行インデックスを取得するリスト。
 		if len(sliprows)>len(sliprowsset):  # 伝票番号列に重複行がある時。空文字も重複してはいけない。
@@ -92,9 +102,10 @@ class SlipNoModifyListener(unohelper.Base, XModifyListener):
 						j = sliprows.index(i, j)
 						duperows.append(j+splittedrow)  # 重複している伝票番号がある行インデックスを取得。
 						j += 1		
-		cellranges = self.doc.createInstance("com.sun.star.sheet.SheetCellRanges")  # com.sun.star.sheet.SheetCellRangesをインスタンス化。
-		cellranges.addRangeAddresses([VARS.sheet[i, VARS.daycolumn-1].getRangeAddress() for i in duperows], False)
-		cellranges.setPropertyValue("CellBackColor", commons.COLORS["silver"])  # 重複伝票番号の背景色を変える。			
+		if duperows:
+			cellranges = self.doc.createInstance("com.sun.star.sheet.SheetCellRanges")  # com.sun.star.sheet.SheetCellRangesをインスタンス化。
+			cellranges.addRangeAddresses([VARS.sheet[i, VARS.daycolumn-1].getRangeAddress() for i in duperows], False)
+			cellranges.setPropertyValue("CellBackColor", commons.COLORS["silver"])  # 重複伝票番号の背景色を変える。			
 	def disposing(self, eventobject):
 		eventobject.Source.removeModifyListener(self)		
 def mousePressed(enhancedmouseevent, xscriptcontext):  # マウスボタンを押した時。controllerにコンテナウィンドウはない。
