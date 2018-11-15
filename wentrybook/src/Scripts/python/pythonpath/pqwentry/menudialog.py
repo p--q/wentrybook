@@ -132,6 +132,7 @@ class MouseListener(staticdialog.MouseListener):
 			pos = Rectangle(mouseevent.X, mouseevent.Y, 0, 0)  # ポップアップメニューを表示させる起点。
 			self.gridpopupmenu.execute(gridcontrol.getPeer(), pos, PopupMenuDirection.EXECUTE_DEFAULT)  # ポップアップメニューを表示させる。引数は親ピア、位置、方向							
 	def _toCell(self, gridcontrol, selectedrowindexes):  # callback関数で指定した行をマウスで選択し直さないとgetCurrentRow()では0が返ってしまうのでselectedrowindexesも受け取る。
+		self.dialogframe.close(True)  # ダイアログを先に閉じてしまう。そうしないとコールバック関数でメッセージボックスを使うとダイアログが残ってしまう。	
 		xscriptcontext, callback = self.args
 		doc = xscriptcontext.getDocument()
 		selection = doc.getCurrentSelection()  # シート上で選択しているオブジェクトを取得。
@@ -141,5 +142,6 @@ class MouseListener(staticdialog.MouseListener):
 				griddata = gridcontrol.getModel().getPropertyValue("GridDataModel")  # GridDataModelを取得。グリッドコントロールは1列と決めつけて処理する。
 				rowdata = griddata.getRowData(j)  # グリッドコントロールで選択している行のすべての列をタプルで取得。
 				if callback is not None:  # コールバック関数が与えられている時。
-					callback(rowdata[0])						
+					callback(rowdata[0])			
+				
 	
