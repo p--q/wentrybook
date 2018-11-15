@@ -22,7 +22,7 @@ class Journal():  # シート固有の値。
 		self.sliptotalcolumn = 0  # 伝票内計列インデックス。
 		self.daycolumn = 2  # 取引日列インデックス。この左列は伝票番号列、右列が摘要列。
 		self.splittedcolumn = 4  # 固定列インデックス。	
-		self.settrlingdaycelladdress = "C2"  # 決算日セルの文字アドレス。
+		self.settlingdaycelladdress = "C2"  # 決算日セルの文字アドレス。
 	def setSheet(self, sheet):  # シートの逐次変化する値。
 		self.sheet = sheet
 		cellranges = sheet[self.splittedrow:, self.daycolumn].queryContentCells(CellFlags.DATETIME)  # 取引日列の日付が入っているセルに限定して抽出。
@@ -47,7 +47,7 @@ class SettlingDayModifyListener(unohelper.Base, XModifyListener):
 	def __init__(self, xscriptcontext):	
 		self.formatkey = commons.formatkeyCreator(xscriptcontext.getDocument())("YYYY-MM-DD")
 	def modified(self, eventobject):  # 決算日セルが変化したら発火するメソッド。eventobject.Sourceには全シートの決算日セルのセル範囲コレクションが入っている。
-		settlingdatecell = VARS.sheet[VARS.settrlingdaycelladdress]  # 決算日セルを取得。
+		settlingdatecell = VARS.sheet[VARS.settlingdaycelladdress]  # 決算日セルを取得。
 		val = settlingdatecell.getValue()  # セルの値を取得。空セルや文字のときは0.0が返る。
 		cellbackcolor = -1 if val>0 else commons.COLORS["violet"]  # 決算日セルが0以上の時は背景色をクリアする。
 		settlingdatecell.setPropertyValues(("NumberFormat", "CellBackColor"), (self.formatkey, cellbackcolor))
@@ -56,7 +56,7 @@ class SettlingDayModifyListener(unohelper.Base, XModifyListener):
 class ValueModifyListener(unohelper.Base, XModifyListener):
 	def __init__(self, xscriptcontext):
 		self.formatkey = commons.formatkeyCreator(xscriptcontext.getDocument())("#,##0;[BLUE]-#,##0")
-	def modified(self, eventobject):  # 固定行以下固定列右のセルが変化すると発火するメソッド。サブジェクトのどこが変化したかはわからない。
+	def modified(self, eventobject):  # 固定行以下固定列右のセルが変化すると発火するメソッド。サブジェクトのどこが変化したかはわからない。eventobject.Sourceは対象全シートのセル範囲コレクション。
 		VARS.setSheet(VARS.sheet)  # 最終行と列を取得し直す。
 		datarange = VARS.sheet[VARS.splittedrow:, VARS.sliptotalcolumn]
 		datarange.clearContents(CellFlags.VALUE)
@@ -71,41 +71,45 @@ class ValueModifyListener(unohelper.Base, XModifyListener):
 		searchdescriptor.setSearchString("[^0]")  # 0以外のセルを取得。戻り値はない。	
 		cellranges = datarange.queryContentCells(CellFlags.VALUE).findAll(searchdescriptor)  # 値のあるセルから0以外が入っているセル範囲コレクションを取得。見つからなかった時はNoneが返る。
 		if cellranges:
-			cellranges.setPropertyValue("CellBackColor", commons.COLORS["violet"])  # 不均衡セルをハイライト。				
+			cellranges.setPropertyValue("CellBackColor", commons.COLORS["violet"])  # 不均衡セルをハイライト。	
+		VARS.sheet[VARS.splittedrow:VARS.emptyrow, VARS.splittedcolumn:VARS.emptycolumn].setPropertyValue("NumberFormat", self.formatkey)  # 伝票金額セルの書式を設定。	
 	def disposing(self, eventobject):
 		eventobject.Source.removeModifyListener(self)
 class SlipNoModifyListener(unohelper.Base, XModifyListener):
 	def __init__(self, xscriptcontext):	
-		self.doc = xscriptcontext.getDocument()
-	def modified(self, eventobject):  # 伝票番号列が変化した時に発火するメソッド。
+		doc = xscriptcontext.getDocument()
+		self.doc = doc
+		self.formatkey = commons.formatkeyCreator(doc)("YYYY-MM-DD")
+	def modified(self, eventobject):  # 伝票番号列や取引日列が変化した時に発火するメソッド。eventobject.Sourceは対象全シートのセル範囲コレクション。
 		splittedrow = VARS.splittedrow
 		VARS.setSheet(VARS.sheet)  # 最終行と列を取得し直す。
 		VARS.sheet[VARS.splittedrow:, VARS.daycolumn-1].setPropertyValue("CellBackColor", -1)  # 伝票番号列の背景色をクリア。
-		datarange = VARS.sheet[VARS.splittedrow:VARS.emptyrow, VARS.daycolumn-1]
+		datarange = VARS.sheet[VARS.splittedrow:VARS.emptyrow, VARS.daycolumn-1]  # 取引日の入力がある行までの伝票番号列のセル範囲を取得。
 		sliprows = list(datarange.getDataArray())  # 伝票番号列の行をリストにして取得。
-		i = ("",)
-		if i in sliprows:
+		i = ("",)  # 空セルの行。
+		if i in sliprows:  # 空セルの行がある時。
 			deadnogene = (j for j in count(1) if j not in list(chain.from_iterable(sliprows)))  # 空伝票番号のイテレーター。
 			j = 0
-			while i in sliprows[j:]:
+			while i in sliprows[j:]:  # 空セルの行を空伝票番号を入れた行に置き換える。
 				j = sliprows.index(i, j)
 				sliprows[j] = next(deadnogene),
 				j += 1
 			datarange.setDataArray(sliprows)		
 		sliprowsset = set(sliprows)  # 重複行を削除した集合を取得。		
 		duperows = []  # 重複している伝票番号がある行インデックスを取得するリスト。
-		if len(sliprows)>len(sliprowsset):  # 伝票番号列に重複行がある時。空文字も重複してはいけない。
+		if len(sliprows)>len(sliprowsset):  # 伝票番号列に重複行がある時。空文字の重複でもTrue。
 			for i in sliprowsset:  # 重複は除いて伝票番号をイテレート。
-				if sliprows.count(i)>1:  # 複数ある時。
+				if sliprows.count(i)>1:  # 伝票番号が複数ある時。
 					j = 0
 					while i in sliprows[j:]:
 						j = sliprows.index(i, j)
 						duperows.append(j+splittedrow)  # 重複している伝票番号がある行インデックスを取得。
 						j += 1		
-		if duperows:
+		if duperows:  # 重複している伝票行がある時。
 			cellranges = self.doc.createInstance("com.sun.star.sheet.SheetCellRanges")  # com.sun.star.sheet.SheetCellRangesをインスタンス化。
 			cellranges.addRangeAddresses([VARS.sheet[i, VARS.daycolumn-1].getRangeAddress() for i in duperows], False)
-			cellranges.setPropertyValue("CellBackColor", commons.COLORS["silver"])  # 重複伝票番号の背景色を変える。			
+			cellranges.setPropertyValue("CellBackColor", commons.COLORS["silver"])  # 重複伝票番号の背景色を変える。	
+		VARS.sheet[VARS.splittedrow:VARS.emptyrow, VARS.daycolumn].setPropertyValue("NumberFormat", self.formatkey)				
 	def disposing(self, eventobject):
 		eventobject.Source.removeModifyListener(self)		
 def mousePressed(enhancedmouseevent, xscriptcontext):  # マウスボタンを押した時。controllerにコンテナウィンドウはない。
@@ -115,20 +119,22 @@ def mousePressed(enhancedmouseevent, xscriptcontext):  # マウスボタンを�
 			if enhancedmouseevent.ClickCount==2:  # 左ダブルクリックの時。まずselectionChanged()が発火している。
 				celladdress = selection.getCellAddress()
 				r, c = celladdress.Row, celladdress.Column  # selectionの行と列インデックスを取得。		
-				if r<VARS.splittedrow and c<VARS.splittedcolumn:
-					doc = xscriptcontext.getDocument()
-					controller = doc.getCurrentController()						
-					txt = selection.getString()
-					sheet = VARS.sheet		
-					if txt=="メニュー":
-						defaultrows = "仕訳日記帳生成", "総勘定元帳生成", "全補助元帳生成", "試算表生成", "次年度繰越"
-						transientdialog.createDialog(xscriptcontext, txt, defaultrows, outputcolumn=None, enhancedmouseevent=enhancedmouseevent, callback=None)
-						
-						
-						
-						
+				if r<VARS.splittedrow and c<VARS.splittedcolumn:  # 左上枠の時。
+					if celladdress==VARS.sheet[VARS.settlingdaycelladdress].getCellAddress():  # 決算日セルの時。
+						datedialog.createDialog(enhancedmouseevent, xscriptcontext, "決算日")  # 書式はSettlingDayModifyListenerで設定する。	
+					else:							
+						txt = selection.getString()	
+						if txt=="メニュー":
+							defaultrows = "仕訳日記帳生成", "総勘定元帳生成", "全補助元帳生成", "試算表生成", "次年度繰越"
+							transientdialog.createDialog(xscriptcontext, txt, defaultrows, outputcolumn=None, enhancedmouseevent=enhancedmouseevent, callback=None)
+					return False  # セル編集モードにしない。
+				elif r>=VARS.splittedrow and c==VARS.daycolumn:  # 取引日列の時。
+					datedialog.createDialog(enhancedmouseevent, xscriptcontext, "取引日")  # 書式はSlipNoModifyListenerで設定する。
+					return False  # セル編集モードにしない。
+	return True  # セル編集モードにする。シングルクリックは必ずTrueを返さないといけない。					
 					
-						return False  # セル編集モードにしない。
+					
+					
 					
 # 					if txt=="仕訳日記帳生成":
 # 						splittedrow = VARS.splittedrow	
@@ -294,10 +300,7 @@ def mousePressed(enhancedmouseevent, xscriptcontext):  # マウスボタンを�
 # 						VARS.settlingdatedigits = None
 # 						datedialog.createDialog(enhancedmouseevent, xscriptcontext, "決算日", callback=callback_getSettlingDayCreator(xscriptcontext))	
 # 						return False  # セル編集モードにしない。					
-				elif r>=VARS.splittedrow and c==VARS.daycolumn:  # 取引日列インデックスの時。
-					datedialog.createDialog(enhancedmouseevent, xscriptcontext, "取引日", "YYYY-MM-DD")	
-					return False  # セル編集モードにしない。
-	return True  # セル編集モードにする。シングルクリックは必ずTrueを返さないといけない。
+
 
 
 
@@ -789,11 +792,13 @@ def callback_sliphistoryCreator(xscriptcontext):
 		datarows = sheet[VARS.subtotalrow:VARS.emptyrow, min(recalccols):max(recalccols)+1].getDataArray()  # 個別の列だけ再計算するのは面倒なので、連続する列すべてを再計算する。
 		sheet[VARS.subtotalrow, min(recalccols):max(recalccols)+1].setDataArray(([sum(filter(lambda x: isinstance(x, float), i)) for i in zip(*datarows[1:])],))  # 列ごとの合計を取得。			
 	return callback_sliphistory	
-def getDateSection():
-	settlingdatedigits = VARS.settlingdatedigits
-	if settlingdatedigits:  # シートの年度が取得できた時。
-		y, m, d = settlingdatedigits
+def getDateSection():  # 決算日から、年度開始日と終了日のdateオブジェクトのタプルを返す。
+	datecell = VARS.sheet[VARS.settlingdaycelladdress]  # 決算日セルを取得。
+	datevalue = datecell.getValue()  # 決算日セルから値を取得。
+	if datevalue>0:  # 値が正の数の時はセルには日付が入っている。
+		datetxt = datecell.getString()  # 日付を文字列で取得。
+		y, m, d = tuple(map(int, datetxt.split(datetxt[4])))  # 年、月、日を整数で取得。
 		sdate = date(y-1, m, d) + timedelta(days=1)  # 年度開始日。
-		edate = date(*settlingdatedigits)  # 年度終了日。
+		edate = date(y, m, d)  # 年度終了日。
 		return sdate, edate
 	return (None,)*2
