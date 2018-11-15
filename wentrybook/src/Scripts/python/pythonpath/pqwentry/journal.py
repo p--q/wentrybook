@@ -357,6 +357,12 @@ def createHojoSheetCreator(headerrows, datarows, createNewSheet):
 		createNewSheet(kozakamokuname, newdatarows, slipstartrows)		
 	return createHojoSheet
 def createKamokuSheetCreator(headerrows, datarows, createNewSheet):
+	
+	
+	
+	
+	
+	
 	splittedrow = VARS.splittedrow
 	daycolumn = VARS.daycolumn
 	slipnocolumn = VARS.slipnocolumn
