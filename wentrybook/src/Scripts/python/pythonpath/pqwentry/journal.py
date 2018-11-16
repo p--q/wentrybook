@@ -4,7 +4,7 @@
 from . import commons, datedialog, dialogcommons, historydialog, menudialog
 import unohelper, os
 from itertools import chain, compress, count, filterfalse, islice, zip_longest
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 from com.sun.star.awt import MouseButton, MessageBoxButtons, MessageBoxResults  # 定数
 from com.sun.star.awt.MessageBoxType import QUERYBOX  # enum
 from com.sun.star.beans import PropertyValue  # Struct
@@ -22,7 +22,7 @@ class Journal():  # シート固有の値。
 		self.sliptotalcolumn = 0  # 伝票内計列インデックス。
 		self.daycolumn = 2  # 取引日列インデックス。この左列は伝票番号列、右列が摘要列。
 		self.splittedcolumn = 4  # 固定列インデックス。	
-		self.settlingdaycelladdress = "C2"  # 決算日セルの文字アドレス。
+		self.settlingdayrows = 1, 3  # 期首日セルと期末日セルの行インデックスのタプル。
 	def setSheet(self, sheet):  # シートの逐次変化する値。
 		self.sheet = sheet
 		cellranges = sheet[self.splittedrow:, self.daycolumn].queryContentCells(CellFlags.DATETIME+CellFlags.VALUE)  # 取引日列の日付が入っているセルに限定して抽出。書式設定される前のセルも取得する。
@@ -47,10 +47,11 @@ class SettlingDayModifyListener(unohelper.Base, XModifyListener):
 	def __init__(self, xscriptcontext):	
 		self.formatkey = commons.formatkeyCreator(xscriptcontext.getDocument())("YYYY-MM-DD")
 	def modified(self, eventobject):  # 決算日セルが変化したら発火するメソッド。eventobject.Sourceには全シートの決算日セルのセル範囲コレクションが入っている。
-		settlingdatecell = VARS.sheet[VARS.settlingdaycelladdress]  # 決算日セルを取得。
-		val = settlingdatecell.getValue()  # セルの値を取得。空セルや文字のときは0.0が返る。
-		cellbackcolor = -1 if val>0 else commons.COLORS["violet"]  # 決算日セルが0以上の時は背景色をクリアする。
-		settlingdatecell.setPropertyValues(("NumberFormat", "CellBackColor"), (self.formatkey, cellbackcolor))
+		for i in VARS.settlingdayrows:
+			settlingdatecell = VARS.sheet[i, VARS.daycolumn]  # 決算日セルを取得。
+			val = settlingdatecell.getValue()  # セルの値を取得。空セルや文字のときは0.0が返る。
+			cellbackcolor = -1 if val>0 else commons.COLORS["violet"]  # 決算日セルが0以上の時は背景色をクリアする。
+			settlingdatecell.setPropertyValues(("NumberFormat", "CellBackColor"), (self.formatkey, cellbackcolor))
 	def disposing(self, eventobject):
 		eventobject.Source.removeModifyListener(self)
 class ValueModifyListener(unohelper.Base, XModifyListener):
@@ -120,7 +121,7 @@ def mousePressed(enhancedmouseevent, xscriptcontext):  # マウスボタンを�
 				celladdress = selection.getCellAddress()
 				r, c = celladdress.Row, celladdress.Column  # selectionの行と列インデックスを取得。		
 				if r<VARS.splittedrow and c<VARS.splittedcolumn:  # 左上枠の時。
-					if celladdress==VARS.sheet[VARS.settlingdaycelladdress].getCellAddress():  # 決算日セルの時。
+					if r in VARS.settlingdayrows and c==VARS.daycolumn:  # 期首日セルや期末日セルの時。
 						datedialog.createDialog(enhancedmouseevent, xscriptcontext, "決算日")  # 書式はSettlingDayModifyListenerで設定する。	
 					else:							
 						txt = selection.getString()	
@@ -160,8 +161,13 @@ def callback_menuCreator(xscriptcontext):
 			if not headerrows:
 				commons.showErrorMessageBox(controller, "シートのデータが取得できません。\n処理を中止します。")	
 				return
+
+
+# 			import pydevd; pydevd.settrace(stdoutToServer=True, stderrToServer=True)
+
+			settlingdaytxt = "期首日: {}, 期末日: {}".format(*[sheet[i, daycolumn].getString() for i in VARS.settlingdayrows])
 			newdatarows = [(kozakamokuname, "", "", "", "", ""),\
-						("決算日", sheet[VARS.settlingdaycelladdress].getString(), "", "", "", ""),\
+						(settlingdaytxt, "", "", "", "", ""),\
 						("日付", "借方科目", "借方金額", "貸方科目", "貸方金額", "摘要"),\
 						("伝票番号", "借方補助科目", "", "貸方補助科目", "", "")]  # 新規シートのヘッダー行。
 			slipstartrows = []  # 新規シートの伝票開始行インデックスのリスト。
@@ -313,7 +319,7 @@ def callback_menuCreator(xscriptcontext):
 			sheet.setName("試算表{}決算".format(settledaytxt))
 			sheet[:len(newdatarows), :len(newdatarows[0])].setDataArray(newdatarows)
 		
-			# 0を消す。
+			
 			
 			
 		
@@ -784,13 +790,14 @@ def callback_sliphistoryCreator(xscriptcontext):
 		datarows = sheet[VARS.subtotalrow:VARS.emptyrow, min(recalccols):max(recalccols)+1].getDataArray()  # 個別の列だけ再計算するのは面倒なので、連続する列すべてを再計算する。
 		sheet[VARS.subtotalrow, min(recalccols):max(recalccols)+1].setDataArray(([sum(filter(lambda x: isinstance(x, float), i)) for i in zip(*datarows[1:])],))  # 列ごとの合計を取得。			
 	return callback_sliphistory	
-def getDateSection():  # 決算日から、年度開始日と終了日のdateオブジェクトのタプルを返す。
-	datecell = VARS.sheet[VARS.settlingdaycelladdress]  # 決算日セルを取得。
-	datevalue = datecell.getValue()  # 決算日セルから値を取得。
-	if datevalue>0:  # 値が正の数の時はセルには日付が入っている。
-		datetxt = datecell.getString()  # 日付を文字列で取得。
-		y, m, d = tuple(map(int, datetxt.split(datetxt[4])))  # 年、月、日を整数で取得。
-		sdate = date(y-1, m, d) + timedelta(days=1)  # 年度開始日。
-		edate = date(y, m, d)  # 年度終了日。
-		return sdate, edate
+def getDateSection():  # 期首日と期末日のdateオブジェクトのタプルを返す。
+	dates = []
+	for i in VARS.settlingdayrows:
+		datecell = VARS.sheet[i, VARS.daycolumn]
+		datevalue = datecell.getValue()  # 決算日セルから値を取得。
+		if datevalue>0:  # 値が正の数の時はセルには日付が入っている。
+			datetxt = datecell.getString()  # 日付を文字列で取得。
+			dates.append(date(*tuple(map(int, datetxt.split(datetxt[4])))))
+	if len(dates)==2:
+		return dates
 	return (None,)*2
