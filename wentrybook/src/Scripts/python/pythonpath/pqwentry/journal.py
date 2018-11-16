@@ -161,11 +161,7 @@ def callback_menuCreator(xscriptcontext):
 			if not headerrows:
 				commons.showErrorMessageBox(controller, "シートのデータが取得できません。\n処理を中止します。")	
 				return
-
-
-# 			import pydevd; pydevd.settrace(stdoutToServer=True, stderrToServer=True)
-
-			settlingdaytxt = "期首日: {}, 期末日: {}".format(*[sheet[i, daycolumn].getString() for i in VARS.settlingdayrows])
+			settlingdaytxt = "期首日: {} 期末日: {}".format(*[sheet[i, daycolumn].getString() for i in VARS.settlingdayrows])
 			newdatarows = [(kozakamokuname, "", "", "", "", ""),\
 						(settlingdaytxt, "", "", "", "", ""),\
 						("日付", "借方科目", "借方金額", "貸方科目", "貸方金額", "摘要"),\
