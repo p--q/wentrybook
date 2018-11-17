@@ -63,7 +63,7 @@ class ValueModifyListener(unohelper.Base, XModifyListener):
 		datarange.clearContents(CellFlags.VALUE)
 		datarange.setPropertyValue("CellBackColor", -1)
 		datarows = VARS.sheet[VARS.splittedrow:VARS.emptyrow, VARS.splittedcolumn:VARS.emptycolumn].getDataArray()  # 伝票金額の全データ行を取得。
-		VARS.sheet[VARS.splittedrow-1, VARS.splittedcolumn:VARS.emptycolumn].setDataArray(([sum(filter(lambda x: isinstance(x, float), i)) for i in zip(*datarows)],))  # 列ごとの合計を再計算。
+		VARS.sheet[VARS.splittedrow-1, VARS.splittedcolumn:VARS.emptycolumn].setDataArray(([sum(filter(None, i)) for i in zip(*datarows)],))  # 列ごとの合計を再計算。空セルの空文字を除いて合計する。
 		datarange = VARS.sheet[VARS.splittedrow:VARS.emptyrow, VARS.sliptotalcolumn]  # 伝票内計列のセル範囲を取得。
 		datarange.setDataArray((sum(filter(lambda x: isinstance(x, float), i)),) for i in datarows)  # 伝票内計列を再計算。
 		datarange.setPropertyValue("NumberFormat", self.formatkey)  # 伝票内計列の書式を設定。
@@ -133,11 +133,11 @@ def mousePressed(enhancedmouseevent, xscriptcontext):  # マウスボタンを�
 					datedialog.createDialog(enhancedmouseevent, xscriptcontext, "取引日")  # 書式はSlipNoModifyListenerで設定する。
 					return False  # セル編集モードにしない。
 	return True  # セル編集モードにする。シングルクリックは必ずTrueを返さないといけない。		
-def callback_menuCreator(xscriptcontext):			
+def callback_menuCreator(xscriptcontext):  # 内側のスコープでクロージャの変数を再定義するとクロージャの変数を参照できなくなる。	
 	desktop = xscriptcontext.getDesktop()
 	doc = xscriptcontext.getDocument()
 	controller = doc.getCurrentController()	
-	indicator = controller.getStatusIndicator() 
+	sheet = VARS.sheet
 	splittedrow = VARS.splittedrow	
 	daycolumn = VARS.daycolumn
 	slipnocolumn = daycolumn - 1
@@ -145,23 +145,26 @@ def callback_menuCreator(xscriptcontext):
 	splittedcolumn = VARS.splittedcolumn		
 	componentwindow = controller.ComponentWindow
 	querybox = lambda x: componentwindow.getToolkit().createMessageBox(componentwindow, QUERYBOX, MessageBoxButtons.BUTTONS_YES_NO+MessageBoxButtons.DEFAULT_BUTTON_YES, "WEntryBook", x)
+	startday, endday = [sheet[i, daycolumn].getString() for i in VARS.settlingdayrows]
+	settlingdaytxt = "期首日: {} 期末日: {}".format(startday, endday)
+	sectiontxt = "{}-{}".format(startday.replace("-", ""), endday.replace("-", ""))
 	def callback_menu(gridcelltxt):			
-		sheet = VARS.sheet  # なぜかこれだけクロージャでは参照が消える。	
 		if gridcelltxt=="仕訳日記帳生成":	
 			msgbox = querybox("{}します。".format(gridcelltxt))
 			if msgbox.execute()!=MessageBoxResults.YES:  # Yes以外の時はここで終わる。		
 				return	
+			newdoc = desktop.loadComponentFromURL("private:factory/scalc", "_blank", 0, ())  # 新規ドキュメントの取得。	
+			indicator = newdoc.getCurrentController().getFrame().createStatusIndicator()  # 新規ドキュメントのステータスインディケーターを取得。
+			indicator.start("{}中".format(gridcelltxt), VARS.emptyrow)
 			kozakamokuname = "仕訳日記帳"
 			newkingakucolumns = 2, 4  # 金額書式にする列インデックスのタプル。
 			newtekiyocolumn = 5  # 摘要列インデックス。
 			newkamokucolumnidxes = 1, 3  # 科目列インデックスのタプル。
 			newheadermergecolumns = 2, 4, 5  # セル結合するヘッダー行の列インデックスのタプル。				
-			indicator.start("{}中".format(gridcelltxt), 0)  # 新規ドキュメントを作成後はステータスバーを表示できない。
 			headerrows, datarows = getDataRows(xscriptcontext)
 			if not headerrows:
 				commons.showErrorMessageBox(controller, "シートのデータが取得できません。\n処理を中止します。")	
 				return
-			settlingdaytxt = "期首日: {} 期末日: {}".format(*[sheet[i, daycolumn].getString() for i in VARS.settlingdayrows])
 			newdatarows = [(kozakamokuname, "", "", "", "", ""),\
 						(settlingdaytxt, "", "", "", "", ""),\
 						("日付", "借方科目", "借方金額", "貸方科目", "貸方金額", "摘要"),\
@@ -169,6 +172,7 @@ def callback_menuCreator(xscriptcontext):
 			slipstartrows = []  # 新規シートの伝票開始行インデックスのリスト。
 			datevalue = ""  # 伝票の日付シリアル値。		
 			for i, datarow in enumerate(datarows[splittedrow:], start=splittedrow):  # 伝票行を行インデックスと共にイテレート。
+				indicator.setValue(i)
 				slipstartrows.append(len(newdatarows))  # 新規シートの伝票開始行インデックスを取得。
 				datevalue = "" if datevalue==datarow[daycolumn] else datarow[daycolumn]  # 前の伝票と日付が異なる時のみ日付を表示する。
 				daycolumns = [datevalue, datarow[slipnocolumn]]  # 新規シートの日付列のデータのリスト。伝票の開始行に日付、その下行に伝票番号を表示。
@@ -195,76 +199,84 @@ def callback_menuCreator(xscriptcontext):
 			if slipstartrows[0]==slipstartrows[-1]:  # 伝票がない時は何もしない。
 				commons.showErrorMessageBox(controller, "伝票が一つもありません。\n処理を中止します。")					
 				return
-			newdoc = desktop.loadComponentFromURL("private:factory/scalc", "_blank", 0, ())  # 新規ドキュメントの取得。		
+			indicator.setText("Formatting")	
+			newdocname = "仕訳日記帳_{}_{}.ods".format(sectiontxt, datetime.now().strftime("%Y%m%d%H%M%S"))
 			createNewSheetCreator(newdoc, newkamokucolumnidxes, newkingakucolumns, newheadermergecolumns, newtekiyocolumn)(kozakamokuname, newdatarows, slipstartrows)
-			indicator.end()  # reset()の前にend()しておかないと元に戻らない。
-			indicator.reset()  # ここでリセットしておかないと例外が発生した時にリセットする機会がない。					
-			newdocname = "仕訳日記帳_{}.ods".format(datetime.now().strftime("%Y%m%d%H%M%S"))
+			indicator.setText("Saving {}".format(newdocname))	
 			saveNewDoc(doc, newdoc, newdocname)		
+			indicator.end()  # reset()の前にend()しておかないと元に戻らない。
+			indicator.reset()  # ここでリセットしておかないと例外が発生した時にリセットする機会がない。				
 		elif gridcelltxt=="総勘定元帳生成":
 			msgbox = querybox("{}します。".format(gridcelltxt))
 			if msgbox.execute()!=MessageBoxResults.YES:  # Yes以外の時はここで終わる。		
 				return	
+			newdoc = desktop.loadComponentFromURL("private:factory/scalc", "_blank", 0, ())  # 新規ドキュメントの取得。	
+			indicator = newdoc.getCurrentController().getFrame().createStatusIndicator()  # 新規ドキュメントのステータスインディケーターを取得。			
+			indicator.start("{}中".format(gridcelltxt), VARS.emptycolumn) 
 			newkingakucolumns = 3, 4, 5  # 金額書式にする列インデックスのタプル。
 			newtekiyocolumn = 2  # 摘要列インデックス。
 			newkamokucolumnidxes = 1,  # 科目列インデックスのタプル。
 			newheadermergecolumns = 2, 4, 5  # セル結合するヘッダー行の列インデックスのタプル。
-			indicator.start("{}中".format(gridcelltxt), 0)  # 新規ドキュメントを作成後はステータスバーを表示できない。
 			headerrows, datarows = getDataRows(xscriptcontext)	
 			if not headerrows:
 				commons.showErrorMessageBox(controller, "シートのデータが取得できません。\n処理を中止します。")					
 				return
-			newdoc = desktop.loadComponentFromURL("private:factory/scalc", "_blank", 0, ())  # 新規ドキュメントの取得。
 			createNewSheet = createNewSheetCreator(newdoc, newkamokucolumnidxes, newkingakucolumns, newheadermergecolumns, newtekiyocolumn)
-			createKamokuSheet = createKamokuSheetCreator(headerrows, datarows, createNewSheet)
-			for kozakamokuname in compress(*(datarows[VARS.kamokurow][splittedcolumn:],)*2):  # 口座科目名をイテレート。科目行の空セルでない値のみイテレート。
+			createKamokuSheet = createKamokuSheetCreator(settlingdaytxt, headerrows, datarows, createNewSheet)
+			for i, kozakamokuname in enumerate(compress(*(datarows[VARS.kamokurow][splittedcolumn:],)*2), start=splittedcolumn):  # 口座科目名をイテレート。科目行の空セルでない値のみイテレート。
+				indicator.setValue(i)
 				createKamokuSheet(kozakamokuname)
-			indicator.end()  # reset()の前にend()しておかないと元に戻らない。
-			indicator.reset()  # ここでリセットしておかないと例外が発生した時にリセットする機会がない。			
 			if len(newdoc.getSheets())==1:  # シートが増えていない時。
 				commons.showErrorMessageBox(controller, "伝票がある科目が一つもありませんでした。")	
 				newdoc.close(True)				
-				return				
-			newdocname = "総勘定元帳_{}.ods".format(datetime.now().strftime("%Y%m%d%H%M%S"))
-			saveNewDoc(doc, newdoc, newdocname)		
+				return			
+			newdocname = "総勘定元帳_{}_{}.ods".format(sectiontxt, datetime.now().strftime("%Y%m%d%H%M%S"))
+			indicator.setText("Saving {}".format(newdocname))	
+			saveNewDoc(doc, newdoc, newdocname)	
+			indicator.end()  # reset()の前にend()しておかないと元に戻らない。
+			indicator.reset()  # ここでリセットしておかないと例外が発生した時にリセットする機会がない。			
 		elif gridcelltxt=="全補助元帳生成":
 			msgbox = querybox("{}します。".format(gridcelltxt))
 			if msgbox.execute()!=MessageBoxResults.YES:  # Yes以外の時はここで終わる。		
 				return				
+			newdoc = desktop.loadComponentFromURL("private:factory/scalc", "_blank", 0, ())  # 新規ドキュメントの取得。	
+			indicator = newdoc.getCurrentController().getFrame().createStatusIndicator()  # 新規ドキュメントのステータスインディケーターを取得。			
+			indicator.start("{}中".format(gridcelltxt), VARS.emptycolumn)
 			newheadermergecolumns = 2, 3, 4, 5  # セル結合するヘッダー行の列インデックスのタプル。
 			newkingakucolumns = 3, 4, 5  # 金額書式にする列インデックスのタプル。
 			newtekiyocolumn = 2  # 摘要列インデックス。
-			newkamokucolumnidxes = 1,  # 科目列インデックスのタプル。
-			indicator.start("{}中".format(gridcelltxt), 0)  # 新規ドキュメントを作成後はステータスバーを表示できない。		
+			newkamokucolumnidxes = 1,  # 科目列インデックスのタプル。	
 			headerrows, datarows = getDataRows(xscriptcontext)	
 			if not headerrows:
 				commons.showErrorMessageBox(controller, "シートのデータが取得できません。\n処理を中止します。")	
 				return
-			newdoc = desktop.loadComponentFromURL("private:factory/scalc", "_blank", 0, ())  # 新規ドキュメントの取得。	
 			createNewSheet = createNewSheetCreator(newdoc, newkamokucolumnidxes, newkingakucolumns, newheadermergecolumns, newtekiyocolumn)		
-			createHojoSheet = createHojoSheetCreator(headerrows, datarows, createNewSheet)	
+			createHojoSheet = createHojoSheetCreator(settlingdaytxt, headerrows, datarows, createNewSheet)	
 			for k in range(len(headerrows[0])):
+				indicator.setValue(k)
 				createHojoSheet(k)
-			indicator.end()  # reset()の前にend()しておかないと元に戻らない。
-			indicator.reset()  # ここでリセットしておかないと例外が発生した時にリセットする機会がない。		
 			if len(newdoc.getSheets())==1:  # シートが増えていない時。
 				commons.showErrorMessageBox(controller, "伝票がある科目が一つもありませんでした。")	
 				newdoc.close(True)				
 				return										
-			newdocname = "全補助元帳_{}.ods".format(datetime.now().strftime("%Y%m%d%H%M%S"))
+			newdocname = "全補助元帳_{}_{}.ods".format(sectiontxt, datetime.now().strftime("%Y%m%d%H%M%S"))
+			indicator.setText("Saving {}".format(newdocname))	
 			saveNewDoc(doc, newdoc, newdocname)	
+			indicator.end()  # reset()の前にend()しておかないと元に戻らない。
+			indicator.reset()  # ここでリセットしておかないと例外が発生した時にリセットする機会がない。				
 		elif gridcelltxt=="試算表生成":
 			msgbox = querybox("{}します。".format(gridcelltxt))
 			if msgbox.execute()!=MessageBoxResults.YES:  # Yes以外の時はここで終わる。		
-				return		
-			indicator.start("{}中".format(gridcelltxt), 0)  # 新規ドキュメントを作成後はステータスバーを表示できない。	
+				return	
+			newdoc = desktop.loadComponentFromURL("private:factory/scalc", "_blank", 0, ())  # 新規ドキュメントの取得。	
+			indicator = newdoc.getCurrentController().getFrame().createStatusIndicator()  # 新規ドキュメントのステータスインディケーターを取得。				
+			indicator.start("{}中".format(gridcelltxt), VARS.emptycolumn)  # 新規ドキュメントを作成後はステータスバーを表示できない。	
 			headerrows, datarows = getDataRows(xscriptcontext)	
 			if not headerrows:
 				commons.showErrorMessageBox(controller, "シートのデータが取得できません。\n処理を中止します。")	
 				return		
-			settledaytxt = sheet[VARS.settlingdaycelladdress].getString()
 			newdatarows = [("試算表", "", "", "", "", "", ""),\
-						("決算日", settledaytxt, "", "", "", "", ""),\
+						(settlingdaytxt, "", "", "", "", "", ""),\
 						("勘定科目", "期首残高", "", "期中取引", "", "期末残高", ""),\
 						("", "借方", "貸方", "借方", "貸方", "借方", "貸方")]  # 新規シートのヘッダー行。		
 			bkarikata = []
@@ -276,8 +288,11 @@ def callback_menuCreator(xscriptcontext):
 			kamoku = ""  # 科目のキャッシュ。
 			flg = True if "繰越" in datarows[splittedrow][tekiyocolumn] else False  # 繰越フラグ。
 			for i in zip(*headerrows, *[i[splittedcolumn:] for i in datarows[splittedrow-1:]]):  # 列インデックス、区分、科目、補助科目、列合計、固定列以下の列の要素、をイテレート。
+				indicator.setValue(i[0])
 				if kamoku!=i[2]:  # 科目が切り替わった時。
-					newdatarows.append(((kamoku, *list(map(sum, (bkarikata, bkashikata, karikata, kashikata, ekarikata, ekashikata)))),))
+					sums = list(map(sum, (bkarikata, bkashikata, karikata, kashikata, ekarikata, ekashikata)))  # 各リストの合計のリストを取得。
+					if sum(sums):  # 0でない要素がある時のみ。
+						newdatarows.append((kamoku, *sums))
 					bkarikata = []
 					bkashikata = []
 					karikata = []
@@ -286,7 +301,7 @@ def callback_menuCreator(xscriptcontext):
 					ekashikata = []						
 					kamoku = i[2]  # 科目のキャッシュを更新。
 					sign = -1 if i[1].startswith(("負債", "収益")) else 1  # 区分が負債または収益から始まっている時は残高は貸方を正とするため-1をかける。	
-				startrow = 5
+				startrow = 5  # 固定行以下の要素の開始インデックス。
 				if flg:  # 繰越行がある時。
 					if sign>0:  # 借方科目の時。
 						bkarikata.append(i[startrow] or 0)
@@ -294,33 +309,57 @@ def callback_menuCreator(xscriptcontext):
 					else:  # 貸方科目の時。
 						bkarikata.append(0)
 						bkashikata.append((i[startrow] or 0)*sign)								
-					startrow = 6
+					startrow += 1
 				else:  # 繰越行がない時。
 					bkarikata.append(0)
 					bkashikata.append(0)	
-				karikata.append(sum(filter(lambda x: x>0, i[startrow:])))  # 列の借方合計を取得。
-				kashikatas.append(-sum(filter(lambda x: x<0, i[startrow:])))  # 列の貸方合計を取得。
+				karikata.append(sum(filter(lambda x: x and x>0, i[startrow:])))  # 列の借方合計を取得。空文字を除く。
+				kashikata.append(-sum(filter(lambda x: x and x<0, i[startrow:])))  # 列の貸方合計を取得。空文字を除く。
 				if sign>0:  # 借方科目の時。
 					ekarikata.append(i[4] or 0)
 					ekashikata.append(0)
 				else:  # 貸方科目の時。	
 					ekarikata.append(0)
 					ekashikata.append((i[4] or 0)*sign)
-			
-			# 0を""に置換する。		
-					
-			newdatarows.append((("合計", *list(map(sum, islice(zip(*newdatarows[4:])), 1, None))),))
-			newdoc = desktop.loadComponentFromURL("private:factory/scalc", "_blank", 0, ())  # 新規ドキュメントの取得。		
-			sheet = newdoc.getSheets[0]
-			sheet.setName("試算表{}決算".format(settledaytxt))
-			sheet[:len(newdatarows), :len(newdatarows[0])].setDataArray(newdatarows)
-		
-			
-			
-			
-		
-		
-		
+			newdatarows.append(("合計", *list(map(sum, islice(zip(*newdatarows[4:]), 1, None))),))  # 各列合計を取得。
+			indicator.setText("Formatting")		
+			newsheet = newdoc.getSheets()[0]
+			newsheet.setName("試算表")
+			rowscount = len(newdatarows)
+			columnscount = len(newdatarows[0])
+			newsheet[:rowscount, :columnscount].setDataArray(newdatarows)
+			horizontalmerges = 1, 3, 5  # 右隣のセルと結合するヘッダ行の列インデックス。
+			newkingakuwidth = 2000  # 科目金額列幅。		
+			width, leftmargin, rightmargin = newdoc.getStyleFamilies()["PageStyles"]["Default"].getPropertyValues(("Width", "LeftMargin", "RightMargin"))
+			pagewidth = width - leftmargin - rightmargin - 5  # 印刷幅を1/100mmで取得。なぜかはみ出るのでマージンを取る。		
+			newsheet[0, :columnscount].merge(True)  # 題名セルの結合。	
+			rangeaddresses = [newsheet[0, 0].getRangeAddress()]  # 中央揃えするセルのセルアドレスを入れるリストに題名セルを入れる。					。
+			newsheet[2:4, 0].merge(True)  # 科目ヘッダーの結合。	
+			newsheet[2, 0].setPropertyValue("VertJustify", CellVertJustify2.CENTER)  # 科目ヘッダーセルの縦中央揃え。
+			[newsheet[2, i:i+2].merge(True) for i in horizontalmerges]  # 金額ヘッダーの結合。
+			for i in horizontalmerges:  # 金額ヘッダーセルインデックスをイテレート。
+				newsheet[2:4, i].merge(True)
+				rangeaddresses.append(newsheet[2, i].getRangeAddress())
+			setCellRangeProperty(newdoc, rangeaddresses, lambda x: x.setPropertyValue("HoriJustify", CENTER))
+			datarange = newsheet[4:rowscount, 1:columnscount]		
+			searchdescriptor = newsheet.createSearchDescriptor()
+			searchdescriptor.setSearchString(0)  # 0のセルを取得。戻り値はない。	
+			cellranges = datarange.queryContentCells(CellFlags.VALUE).findAll(searchdescriptor)  # 値のあるセルから0以外が入っているセル範囲コレクションを取得。見つからなかった時はNoneが返る。
+			if cellranges:
+				cellranges.clearContents(CellFlags.VALUE)  # 0のセルを空セルにする。
+			datarange.setPropertyValue("NumberFormat", commons.formatkeyCreator(newdoc)("#,##0;[BLUE]-#,##0"))	
+			newcontroller = newdoc.getCurrentController()	
+			selection = newdoc.getCurrentSelection()
+			newcontroller.select(newsheet[2:rowscount, :columnscount])		
+			drawTableBorders(xscriptcontext, newcontroller.getFrame())	
+			newcontroller.select(selection)	
+			newsheet[0, 1:columnscount].getColumns().setPropertyValue("Width", newkingakuwidth)  # 列幅を設定。
+			newsheet.getColumns()[0].setPropertyValue("Width", pagewidth-newkingakuwidth*(columnscount-1))  # 科目列幅を設定。残った幅をすべて割り当てる。	
+			newdocname = "試算表_{}_{}.ods".format(sectiontxt, datetime.now().strftime("%Y%m%d%H%M%S"))
+			indicator.setText("Saving {}".format(newdocname))	
+			saveNewDoc(doc, newdoc, newdocname)	
+			indicator.end()  # reset()の前にend()しておかないと元に戻らない。
+			indicator.reset()  # ここでリセットしておかないと例外が発生した時にリセットする機会がない。						
 		elif gridcelltxt=="次年度繰越":
 			if not VARS.settlingdatedigits:  # 決算日がない時。
 				commons.showErrorMessageBox(controller, "決算日セルに決算日を入力してください。\n処理を中止します。")	
@@ -378,7 +417,25 @@ def callback_menuCreator(xscriptcontext):
 			
 			datarows[VARS.subtotalrow][VARS.splittedcolumn:]
 	return callback_menu
-def createHojoSheetCreator(headerrows, datarows, createNewSheet):
+def drawTableBorders(xscriptcontext, frame):  # 選択範囲内すべてに罫線を引く。UNO APIでやる方法がわからない。線種の設定方法も不明。
+	ctx = xscriptcontext.getComponentContext()  # コンポーネントコンテクストの取得。
+	smgr = ctx.getServiceManager()  # サービスマネージャーの取得。
+	dispatcher = smgr.createInstanceWithContext("com.sun.star.frame.DispatchHelper", ctx)
+	propertyvalues = PropertyValue(Name="OuterBorder.LeftBorder", Value=(0,0,2,0,0,2)),\
+					PropertyValue(Name="OuterBorder.LeftDistance", Value=0),\
+					PropertyValue(Name="OuterBorder.RightBorder", Value=(0,0,2,0,0,2)),\
+					PropertyValue(Name="OuterBorder.RightDistance", Value=0),\
+					PropertyValue(Name="OuterBorder.TopBorder", Value=(0,0,2,0,0,2)),\
+					PropertyValue(Name="OuterBorder.TopDistance", Value=0),\
+					PropertyValue(Name="OuterBorder.BottomBorder", Value=(0,0,2,0,0,2)),\
+					PropertyValue(Name="OuterBorder.BottomDistance", Value=0),\
+					PropertyValue(Name="InnerBorder.Horizontal", Value=(0,0,2,0,0,2)),\
+					PropertyValue(Name="InnerBorder.Vertical", Value=(0,0,2,0,0,2)),\
+					PropertyValue(Name="InnerBorder.Flags", Value=0),\
+					PropertyValue(Name="InnerBorder.ValidFlags", Value=127),\
+					PropertyValue(Name="InnerBorder.DefaultDistance", Value=0)  # InnerBorder.ValidFlagsが枠線の引く場所を指定と思われる。		
+	dispatcher.executeDispatch(frame, ".uno:SetBorderStyle", "", 0, propertyvalues)  # ディスパッチコマンドで罫線を引く。
+def createHojoSheetCreator(settlingdaytxt, headerrows, datarows, createNewSheet):
 	splittedrow = VARS.splittedrow
 	daycolumn = VARS.daycolumn
 	slipnocolumn = daycolumn - 1
@@ -390,7 +447,7 @@ def createHojoSheetCreator(headerrows, datarows, createNewSheet):
 		kubun = headerrows[1][k]
 		sign = -1 if kubun.startswith(("負債", "収益")) else 1  # 区分が負債または収益から始まっている時は残高は貸方を正とする。	
 		newdatarows = [(kozakamokuname, "", "", "", "", ""),\
-					("決算日", sheet[VARS.settlingdaycelladdress].getString(), "", "", "", kubun),\
+					(settlingdaytxt, "", "", "", "", kubun),\
 					("日付", "相手勘定科目", "摘要", "借方金額", "貸方金額", "残高"),\
 					("伝票番号", "相手補助科目", "", "", "", "")]  # 新規シートのヘッダー行。
 		slipstartrows = []  # 新規シートの伝票開始行インデックスのリスト。
@@ -427,7 +484,7 @@ def createHojoSheetCreator(headerrows, datarows, createNewSheet):
 			return
 		createNewSheet(kozakamokuname, newdatarows, slipstartrows)		
 	return createHojoSheet
-def createKamokuSheetCreator(headerrows, datarows, createNewSheet):
+def createKamokuSheetCreator(settlingdaytxt, headerrows, datarows, createNewSheet):
 	splittedrow = VARS.splittedrow
 	daycolumn = VARS.daycolumn
 	slipnocolumn = daycolumn - 1
@@ -444,7 +501,7 @@ def createKamokuSheetCreator(headerrows, datarows, createNewSheet):
 		kubun = headerrows[1][kozacolumns[0]-splittedcolumn]  # 区分を取得。	
 		sign = -1 if kubun.startswith(("負債", "収益")) else 1  # 区分が負債または収益から始まっている時は残高は貸方を正とする。	
 		newdatarows = [(kozakamokuname, "", "", "", "", ""),\
-					("決算日", sheet[VARS.settlingdaycelladdress].getString(), "", "", "", kubun),\
+					(settlingdaytxt, "", "", "", "", kubun),\
 					("日付", "相手勘定科目", "摘要", "補助科目", "貸方金額", "残高"),\
 					("伝票番号", "相手補助科目", "", "借方金額", "", "")]  # 新規シートのヘッダー行。
 		slipstartrows = []  # 新規シートの伝票開始行インデックスのリスト。
@@ -483,12 +540,14 @@ def createKamokuSheetCreator(headerrows, datarows, createNewSheet):
 	return createKamokuSheet
 def saveNewDoc(doc, newdoc, newdocname):
 	sheets = newdoc.getSheets()
-	if len(sheets)==1:  # 一つもシートが追加されていない時シートは保存せずに閉じる。
-		newdoc.close(True)
-		controller = doc.getCurrentController()	
-		commons.showErrorMessageBox(controller, "この科目の伝票がありません。")	
-		return
-	del sheets["Sheet1"]  # 新規ドキュメントのデフォルトシートを削除する。 
+	if "Sheet1" in sheets:  # デフォルトシートが残っている時。
+		if len(sheets)==1:  # デフォルトシート以外一つもシートが追加されていない時シートは保存せずに閉じる。
+			newdoc.close(True)
+			controller = doc.getCurrentController()	
+			commons.showErrorMessageBox(controller, "生成されたシートがありませんでした。")	
+			return		
+		else:  # 複数シートが存在しSheet1が残っている時。
+			del sheets["Sheet1"]  # 新規ドキュメントのデフォルトシートを削除する。 	
 	dirpath = os.path.dirname(unohelper.fileUrlToSystemPath(doc.getURL()))  # このドキュメントのあるディレクトリのフルパスを取得。
 	systempath = os.path.join(dirpath, "帳簿", newdocname)  # 新規ドキュメントのフルパスを取得。
 	if os.path.exists(systempath):  # すでにファイルが存在する時。
@@ -518,7 +577,7 @@ def createNewSheetCreator(newdoc, newkamokucolumnidxes, newkingakucolumns, newhe
 		newsheet[0, 0].setPropertyValue("HoriJustify", CENTER)  # 題名セルを中央揃え。
 		newsheet[1, columncount-1].setPropertyValue("HoriJustify", RIGHT)  # 区分セルを右揃え。
 		setCellRangeProperty(newdoc, (newsheet[i, 0].getRangeAddress() for i in slipstartrows[:-1]), lambda x: x.setPropertyValues(("HoriJustify", "NumberFormat"), (LEFT, createFormatKey("M/D"))))  # 伝票開始列の日付セルのプロパティ設定。
-		setCellRangeProperty(newdoc, (newsheet[j, i].getRangeAddress() for i in newkingakucolumns for j in range(slipstartrows[0]+1, slipstartrows[-1], 2)), lambda x: x.setPropertyValue("NumberFormat", createFormatKey("#,##0")))  # 金額列の書式設定。
+		setCellRangeProperty(newdoc, (newsheet[j, i].getRangeAddress() for i in newkingakucolumns for j in range(slipstartrows[0]+1, slipstartrows[-1], 2)), lambda x: x.setPropertyValue("NumberFormat", createFormatKey("#,##0;[BLUE]-#,##0")))  # 金額列の書式設定。
 		for i in newheadermergecolumns:  # セル結合するヘッダー行。
 			newsheet[2:4, i].merge(True)
 			newsheet[2, i].setPropertyValue("VertJustify", CellVertJustify2.CENTER)
@@ -587,8 +646,8 @@ def selectionChanged(eventobject, xscriptcontext):  # 矢印キーでセル移�
 	if selection.supportsService("com.sun.star.sheet.SheetCellRange"):  # 選択範囲がセル範囲の時。
 		sheet = selection.getSpreadsheet()
 		VARS.setSheet(sheet)		
-		drowBorders(selection)  # 枠線の作成。
-def drowBorders(selection):  # ターゲットを交点とする行列全体の外枠線を描く。
+		drawBorders(selection)  # 枠線の作成。
+def drawBorders(selection):  # ターゲットを交点とする行列全体の外枠線を描く。
 	celladdress = selection[0, 0].getCellAddress()  # 選択範囲の左上端のセルアドレスを取得。
 	r = celladdress.Row  # selectionの行と列のインデックスを取得。	
 	sheet = VARS.sheet

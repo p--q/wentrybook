@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 import unohelper # import pydevd; pydevd.settrace(stdoutToServer=True, stderrToServer=True)
 from datetime import date, timedelta
-from . import dialogcommons, journal
+from . import dialogcommons, exceptiondialog2, journal
 from com.sun.star.awt import XMenuListener, XMouseListener, XTextListener
 from com.sun.star.awt import MenuItemStyle, MouseButton, PopupMenuDirection, PosSize  # 定数
 from com.sun.star.awt import Rectangle  # Struct
@@ -199,7 +199,10 @@ class MouseListener(unohelper.Base, XMouseListener):
 							datetxt = datetxt.split("(")[0]  # 2018-8-7という書式にする。
 							selection.setFormula(datetxt)  # 2018-8-7の書式で式としてセルに代入。
 							if callback is not None:  # コールバック関数が与えられている時。
-								callback(datetxt)
+								try:
+									callback(datetxt)	
+								except:  # これをしないとエラーダイアログが出てこない。
+									exceptiondialog2.createDialog(xscriptcontext)  # XSCRIPTCONTEXTを渡す。	
 					for menuid in range(1, self.gridpopupmenu.getItemCount()+1):  # ポップアップメニューを走査する。
 						itemtext = self.gridpopupmenu.getItemText(menuid)  # 文字列にはショートカットキーがついてくる。
 						if itemtext.startswith("セル入力で閉じる"):
