@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 # import pydevd; pydevd.settrace(stdoutToServer=True, stderrToServer=True)
 import unohelper
-from . import dialogcommons
+from . import dialogcommons, exceptiondialog2
 from com.sun.star.awt import XActionListener, XMenuListener, XMouseListener, XWindowListener
 from com.sun.star.awt import MenuItemStyle, MouseButton, PopupMenuDirection, PosSize  # 定数
 from com.sun.star.awt import MenuEvent, Rectangle  # Struct
@@ -155,7 +155,10 @@ class MouseListener(unohelper.Base, XMouseListener):
 				griddata = gridcontrol.getModel().getPropertyValue("GridDataModel")  # GridDataModelを取得。グリッドコントロールは1列と決めつけて処理する。
 				rowdata = griddata.getRowData(j)  # グリッドコントロールで選択している行のすべての列をタプルで取得。
 				if callback is not None:  # コールバック関数が与えられている時。
-					callback(rowdata[0])		
+					try:
+						callback(rowdata[0])	
+					except:  # これをしないとエラーダイアログが出てこない。
+						exceptiondialog2.createDialog(xscriptcontext)  # XSCRIPTCONTEXTを渡す。	
 	def mouseReleased(self, mouseevent):
 		pass
 	def mouseEntered(self, mouseevent):  # なぜかグリッドコントロール上で実行したポップアップメニューに入るときも発火する。

@@ -138,7 +138,6 @@ def callback_menuCreator(xscriptcontext):
 	doc = xscriptcontext.getDocument()
 	controller = doc.getCurrentController()	
 	indicator = controller.getStatusIndicator() 
-	sheet = VARS.sheet
 	splittedrow = VARS.splittedrow	
 	daycolumn = VARS.daycolumn
 	slipnocolumn = daycolumn - 1
@@ -146,7 +145,8 @@ def callback_menuCreator(xscriptcontext):
 	splittedcolumn = VARS.splittedcolumn		
 	componentwindow = controller.ComponentWindow
 	querybox = lambda x: componentwindow.getToolkit().createMessageBox(componentwindow, QUERYBOX, MessageBoxButtons.BUTTONS_YES_NO+MessageBoxButtons.DEFAULT_BUTTON_YES, "WEntryBook", x)
-	def callback_menu(gridcelltxt):						
+	def callback_menu(gridcelltxt):			
+		sheet = VARS.sheet  # なぜかこれだけクロージャでは参照が消える。	
 		if gridcelltxt=="仕訳日記帳生成":	
 			msgbox = querybox("{}します。".format(gridcelltxt))
 			if msgbox.execute()!=MessageBoxResults.YES:  # Yes以外の時はここで終わる。		
