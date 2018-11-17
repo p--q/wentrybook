@@ -4,7 +4,7 @@
 from . import commons, datedialog, dialogcommons, historydialog, menudialog
 import unohelper, os
 from itertools import chain, compress, count, filterfalse, islice, zip_longest
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from com.sun.star.awt import MouseButton, MessageBoxButtons, MessageBoxResults  # 定数
 from com.sun.star.awt.MessageBoxType import QUERYBOX  # enum
 from com.sun.star.beans import PropertyValue  # Struct
@@ -45,35 +45,55 @@ def initSheet(sheet, xscriptcontext):
 	VARS.setSheet(sheet)  # 逐次変化するシートの値を取得。
 class SettlingDayModifyListener(unohelper.Base, XModifyListener):
 	def __init__(self, xscriptcontext):	
-		self.formatkey = commons.formatkeyCreator(xscriptcontext.getDocument())("YYYY-MM-DD")
+		ctx = xscriptcontext.getComponentContext()  # コンポーネントコンテクストの取得。
+		smgr = ctx.getServiceManager()  # サービスマネージャーの取得。		
+		self.functionaccess = smgr.createInstanceWithContext("com.sun.star.sheet.FunctionAccess", ctx)
+		doc = xscriptcontext.getDocument()
+		self.setProperty = lambda x: x.setPropertyValue("NumberFormat", commons.formatkeyCreator(doc)("YYYY-MM-DD"))
+		self.showErrorMessageBox = lambda x: commons.showErrorMessageBox(doc.getCurrentController()	, x)
 	def modified(self, eventobject):  # 決算日セルが変化したら発火するメソッド。eventobject.Sourceには全シートの決算日セルのセル範囲コレクションが入っている。
-		for i in VARS.settlingdayrows:
-			settlingdatecell = VARS.sheet[i, VARS.daycolumn]  # 決算日セルを取得。
-			val = settlingdatecell.getValue()  # セルの値を取得。空セルや文字のときは0.0が返る。
-			cellbackcolor = -1 if val>0 else commons.COLORS["violet"]  # 決算日セルが0以上の時は背景色をクリアする。
-			settlingdatecell.setPropertyValues(("NumberFormat", "CellBackColor"), (self.formatkey, cellbackcolor))
+		if VARS.sheet.getName().startswith("振替伝票"):
+			sdaycell, edaycell = [VARS.sheet[i, VARS.daycolumn] for i in VARS.settlingdayrows]
+			sdatevalue = sdaycell.getValue()  # 期首日セルの値を取得。空セルや文字のときは0.0が返る。
+			edatevalue = edaycell.getValue()  # 期末日セルの値を取得。空セルや文字のときは0.0が返る。
+			if sdatevalue>0 and edatevalue>0:  # 期首日も期末日の入力されている時。
+				if sdatevalue<edatevalue:  # 期首日<期末日の時
+					if edatevalue<self.functionaccess.callFunction("EDATE", (sdatevalue, 12)):  # 期末日が期首日の1年以内の時。
+						pass
+					else:
+						self.showErrorMessageBox("期首日と期末日の間隔は1年以内にしてください。")
+				else:
+					self.showErrorMessageBox("期首日が期末日より古いので訂正してください。")	
+				return
+			elif sdatevalue>0:  # 期首日のみの時。
+				edaycell.setValue(self.functionaccess.callFunction("EDATE", (sdatevalue, 12))-1)  # 1年後を期末日にする。
+			elif edatevalue>0:  # 期末日のみの時。
+				sdaycell.setValue(self.functionaccess.callFunction("EDATE", (edatevalue, -12))+1)  # 1年前を期首日にする。
+			self.setProperty(sdaycell)
+			self.setProperty(edaycell)
 	def disposing(self, eventobject):
 		eventobject.Source.removeModifyListener(self)
 class ValueModifyListener(unohelper.Base, XModifyListener):
 	def __init__(self, xscriptcontext):
 		self.formatkey = commons.formatkeyCreator(xscriptcontext.getDocument())("#,##0;[BLUE]-#,##0")
 	def modified(self, eventobject):  # 固定行以下固定列右のセルが変化すると発火するメソッド。サブジェクトのどこが変化したかはわからない。eventobject.Sourceは対象全シートのセル範囲コレクション。
-		VARS.setSheet(VARS.sheet)  # 最終行と列を取得し直す。
-		datarange = VARS.sheet[VARS.splittedrow:, VARS.sliptotalcolumn]
-		datarange.clearContents(CellFlags.VALUE)
-		datarange.setPropertyValue("CellBackColor", -1)
-		datarows = VARS.sheet[VARS.splittedrow:VARS.emptyrow, VARS.splittedcolumn:VARS.emptycolumn].getDataArray()  # 伝票金額の全データ行を取得。
-		VARS.sheet[VARS.splittedrow-1, VARS.splittedcolumn:VARS.emptycolumn].setDataArray(([sum(filter(None, i)) for i in zip(*datarows)],))  # 列ごとの合計を再計算。空セルの空文字を除いて合計する。
-		datarange = VARS.sheet[VARS.splittedrow:VARS.emptyrow, VARS.sliptotalcolumn]  # 伝票内計列のセル範囲を取得。
-		datarange.setDataArray((sum(filter(lambda x: isinstance(x, float), i)),) for i in datarows)  # 伝票内計列を再計算。
-		datarange.setPropertyValue("NumberFormat", self.formatkey)  # 伝票内計列の書式を設定。
-		searchdescriptor = VARS.sheet.createSearchDescriptor()
-		searchdescriptor.setPropertyValue("SearchRegularExpression", True)  # 正規表現を有効にする。
-		searchdescriptor.setSearchString("[^0]")  # 0以外のセルを取得。戻り値はない。	
-		cellranges = datarange.queryContentCells(CellFlags.VALUE).findAll(searchdescriptor)  # 値のあるセルから0以外が入っているセル範囲コレクションを取得。見つからなかった時はNoneが返る。
-		if cellranges:
-			cellranges.setPropertyValue("CellBackColor", commons.COLORS["violet"])  # 不均衡セルをハイライト。	
-		VARS.sheet[VARS.splittedrow:VARS.emptyrow, VARS.splittedcolumn:VARS.emptycolumn].setPropertyValue("NumberFormat", self.formatkey)  # 伝票金額セルの書式を設定。	
+		if VARS.sheet.getName().startswith("振替伝票"):
+			VARS.setSheet(VARS.sheet)  # 最終行と列を取得し直す。
+			datarange = VARS.sheet[VARS.splittedrow:, VARS.sliptotalcolumn]
+			datarange.clearContents(CellFlags.VALUE)
+			datarange.setPropertyValue("CellBackColor", -1)
+			datarows = VARS.sheet[VARS.splittedrow:VARS.emptyrow, VARS.splittedcolumn:VARS.emptycolumn].getDataArray()  # 伝票金額の全データ行を取得。
+			VARS.sheet[VARS.splittedrow-1, VARS.splittedcolumn:VARS.emptycolumn].setDataArray(([sum(filter(None, i)) for i in zip(*datarows)],))  # 列ごとの合計を再計算。空セルの空文字を除いて合計する。
+			datarange = VARS.sheet[VARS.splittedrow:VARS.emptyrow, VARS.sliptotalcolumn]  # 伝票内計列のセル範囲を取得。
+			datarange.setDataArray((sum(filter(lambda x: isinstance(x, float), i)),) for i in datarows)  # 伝票内計列を再計算。
+			datarange.setPropertyValue("NumberFormat", self.formatkey)  # 伝票内計列の書式を設定。
+			searchdescriptor = VARS.sheet.createSearchDescriptor()
+			searchdescriptor.setPropertyValue("SearchRegularExpression", True)  # 正規表現を有効にする。
+			searchdescriptor.setSearchString("[^0]")  # 0以外のセルを取得。戻り値はない。	
+			cellranges = datarange.queryContentCells(CellFlags.VALUE).findAll(searchdescriptor)  # 値のあるセルから0以外が入っているセル範囲コレクションを取得。見つからなかった時はNoneが返る。
+			if cellranges:
+				cellranges.setPropertyValue("CellBackColor", commons.COLORS["violet"])  # 不均衡セルをハイライト。	
+			VARS.sheet[VARS.splittedrow:VARS.emptyrow, VARS.splittedcolumn:VARS.emptycolumn].setPropertyValue("NumberFormat", self.formatkey)  # 伝票金額セルの書式を設定。	
 	def disposing(self, eventobject):
 		eventobject.Source.removeModifyListener(self)
 class SlipNoModifyListener(unohelper.Base, XModifyListener):
@@ -82,35 +102,37 @@ class SlipNoModifyListener(unohelper.Base, XModifyListener):
 		self.doc = doc
 		self.formatkey = commons.formatkeyCreator(doc)("YYYY-MM-DD")
 	def modified(self, eventobject):  # 伝票番号列や取引日列が変化した時に発火するメソッド。eventobject.Sourceは対象全シートのセル範囲コレクション。
-		splittedrow = VARS.splittedrow
-		VARS.setSheet(VARS.sheet)  # 最終行と列を取得し直す。
-		VARS.sheet[VARS.splittedrow:, VARS.daycolumn-1].setPropertyValue("CellBackColor", -1)  # 伝票番号列の背景色をクリア。
-		datarange = VARS.sheet[VARS.splittedrow:VARS.emptyrow, VARS.daycolumn-1]  # 取引日の入力がある行までの伝票番号列のセル範囲を取得。
-		sliprows = list(datarange.getDataArray())  # 伝票番号列の行をリストにして取得。
-		i = ("",)  # 空セルの行。
-		if i in sliprows:  # 空セルの行がある時。
-			deadnogene = (j for j in count(1) if j not in list(chain.from_iterable(sliprows)))  # 空伝票番号のイテレーター。
-			j = 0
-			while i in sliprows[j:]:  # 空セルの行を空伝票番号を入れた行に置き換える。
-				j = sliprows.index(i, j)
-				sliprows[j] = next(deadnogene),
-				j += 1
-			datarange.setDataArray(sliprows)		
-		sliprowsset = set(sliprows)  # 重複行を削除した集合を取得。		
-		duperows = []  # 重複している伝票番号がある行インデックスを取得するリスト。
-		if len(sliprows)>len(sliprowsset):  # 伝票番号列に重複行がある時。空文字の重複でもTrue。
-			for i in sliprowsset:  # 重複は除いて伝票番号をイテレート。
-				if sliprows.count(i)>1:  # 伝票番号が複数ある時。
-					j = 0
-					while i in sliprows[j:]:
-						j = sliprows.index(i, j)
-						duperows.append(j+splittedrow)  # 重複している伝票番号がある行インデックスを取得。
-						j += 1		
-		if duperows:  # 重複している伝票行がある時。
-			cellranges = self.doc.createInstance("com.sun.star.sheet.SheetCellRanges")  # com.sun.star.sheet.SheetCellRangesをインスタンス化。
-			cellranges.addRangeAddresses([VARS.sheet[i, VARS.daycolumn-1].getRangeAddress() for i in duperows], False)
-			cellranges.setPropertyValue("CellBackColor", commons.COLORS["silver"])  # 重複伝票番号の背景色を変える。	
-		VARS.sheet[VARS.splittedrow:VARS.emptyrow, VARS.daycolumn].setPropertyValue("NumberFormat", self.formatkey)				
+		sheet = VARS.sheet
+		if sheet.getName().startswith("振替伝票"):
+			splittedrow = VARS.splittedrow
+			VARS.setSheet(sheet)  # 最終行と列を取得し直す。
+			sheet[VARS.splittedrow:, VARS.daycolumn-1].setPropertyValue("CellBackColor", -1)  # 伝票番号列の背景色をクリア。
+			datarange = VARS.sheet[VARS.splittedrow:VARS.emptyrow, VARS.daycolumn-1]  # 取引日の入力がある行までの伝票番号列のセル範囲を取得。
+			sliprows = list(datarange.getDataArray())  # 伝票番号列の行をリストにして取得。
+			i = ("",)  # 空セルの行。
+			if i in sliprows:  # 空セルの行がある時。
+				deadnogene = (j for j in count(1) if j not in list(chain.from_iterable(sliprows)))  # 空伝票番号のイテレーター。
+				j = 0
+				while i in sliprows[j:]:  # 空セルの行を空伝票番号を入れた行に置き換える。
+					j = sliprows.index(i, j)
+					sliprows[j] = next(deadnogene),
+					j += 1
+				datarange.setDataArray(sliprows)		
+			sliprowsset = set(sliprows)  # 重複行を削除した集合を取得。		
+			duperows = []  # 重複している伝票番号がある行インデックスを取得するリスト。
+			if len(sliprows)>len(sliprowsset):  # 伝票番号列に重複行がある時。空文字の重複でもTrue。
+				for i in sliprowsset:  # 重複は除いて伝票番号をイテレート。
+					if sliprows.count(i)>1:  # 伝票番号が複数ある時。
+						j = 0
+						while i in sliprows[j:]:
+							j = sliprows.index(i, j)
+							duperows.append(j+splittedrow)  # 重複している伝票番号がある行インデックスを取得。
+							j += 1		
+			if duperows:  # 重複している伝票行がある時。
+				cellranges = self.doc.createInstance("com.sun.star.sheet.SheetCellRanges")  # com.sun.star.sheet.SheetCellRangesをインスタンス化。
+				cellranges.addRangeAddresses([sheet[i, VARS.daycolumn-1].getRangeAddress() for i in duperows], False)
+				cellranges.setPropertyValue("CellBackColor", commons.COLORS["silver"])  # 重複伝票番号の背景色を変える。	
+			sheet[VARS.splittedrow:VARS.emptyrow, VARS.daycolumn].setPropertyValue("NumberFormat", self.formatkey)				
 	def disposing(self, eventobject):
 		eventobject.Source.removeModifyListener(self)		
 def mousePressed(enhancedmouseevent, xscriptcontext):  # マウスボタンを押した時。controllerにコンテナウィンドウはない。
@@ -361,20 +383,29 @@ def callback_menuCreator(xscriptcontext):  # 内側のスコープでクロー�
 			indicator.end()  # reset()の前にend()しておかないと元に戻らない。
 			indicator.reset()  # ここでリセットしておかないと例外が発生した時にリセットする機会がない。						
 		elif gridcelltxt=="次年度繰越":
-			if not VARS.settlingdatedigits:  # 決算日がない時。
-				commons.showErrorMessageBox(controller, "決算日セルに決算日を入力してください。\n処理を中止します。")	
-				return False  # セル編集モードにしない。		
-			settlingdatedigits = VARS.settlingdatedigits					
-			y, m, d = settlingdatedigits  # 現シートの決算日の年月日を取得。
-			msg = "決算{0}-{1}-{2}を次年度{}-{1}-{2}に更新します。".format(*settlingdatedigits, y+1)  # 次年度決算日。2/29には未対応。
-			componentwindow = doc.getCurrentController().ComponentWindow
-			toolkit = componentwindow.getToolkit()
-			msgbox = toolkit.createMessageBox(componentwindow, QUERYBOX, MessageBoxButtons.BUTTONS_YES_NO+MessageBoxButtons.DEFAULT_BUTTON_YES, "WEntryBook", msg)
+			sdatevalue, edatevalue = [VARS.sheet[i, VARS.daycolumn].getValue() for i in VARS.settlingdayrows]  # 期首日と期末日の日付シリアル値を取得。
+			if not (sdatevalue>0 and edatevalue>0):
+				commons.showErrorMessageBox(controller, "期首日と期末日を入力してください。\n処理を中止します。")	
+				return	
+			msgbox = querybox("{}\nを{}します。".format(settlingdaytxt, gridcelltxt))
 			if msgbox.execute()!=MessageBoxResults.YES:  # Yes以外の時はここで終わる。		
-				return False  # セル編集モードにしない。			
+				return			
+			sheetname = sheet.getName()
+			if not sheetname.endswith(sectiontxt):
+				sheet.setName("_".join([sheetname, sectiontxt]))
+			newsdatevalue = edatevalue + 1
+			newedatevalue = newsdatevalue + edatevalue - sdatevalue
+			
+
+			
+			
+						
 			headerrows, datarows = getDataRows(xscriptcontext)  # 科目ヘッダー行とすべてのデータ行を取得。
 			if not headerrows:  # 伝票書式のエラーに引っかかった時ここで終わる。
-				return False  # セル編集モードにしない。
+				return
+			
+			
+			
 			
 			# 新元入金の計算。
 			
