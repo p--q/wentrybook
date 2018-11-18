@@ -73,27 +73,61 @@ def createDialog(enhancedmouseevent, xscriptcontext, dialogtitle, formatstring=N
 	numericfield1.setFocus()
 	todayindex = 7//2  # 今日の日付の位置を決定。切り下げ。
 	col0 = [""]*7  # 全てに空文字を挿入。
-	cellvalue = enhancedmouseevent.Target.getValue()  # セルの値を取得。
 	
-	
-	
-	
-	centerday = None
-	if cellvalue>0:  # セルの値が0より大きい時、日付シリアル値と断定する。文字列のときは0.0が返る。
-		functionaccess = smgr.createInstanceWithContext("com.sun.star.sheet.FunctionAccess", ctx)  # シート関数利用のため。	
-		if cellvalue!=functionaccess.callFunction("TODAY", ()):  # セルの数値が今日でない時。
-			centerday = date(*[int(functionaccess.callFunction(i, (cellvalue,))) for i in ("YEAR", "MONTH", "DAY")])  # シリアル値をシート関数で年、月、日に変換してdateオブジェクトにする。
-			col0[todayindex] = "セル値"
-	if centerday is None:
-		centerday = date.today()
-		col0[todayindex-1:todayindex+2] = "昨日", "今日", "明日"  # 列インデックス0に入れる文字列を取得。
 	sdate, edate = journal.getDateSection()
-	if sdate and edate:		
-		numericfield1.setMin((sdate-centerday).days//7)  # 最小週数を設定。
-		numericfield1.setMax((edate-centerday).days//7)  # 最大週数を設定。
-	addDays(gridcontrol1, centerday, col0)  # グリッドコントロールに行を入れる。	
-	if cellvalue>0: # セルに値があった時。
-		gridcontrol1.selectRow(todayindex)  # セル値の行を選択する。
+
+		
+	
+	selection = enhancedmouseevent.Target
+	datevalue = selection.getValue()  # セルの値を取得。
+	if not datevalue>0:
+		centerdate = date.today()
+		col0[todayindex-1:todayindex+2] = "昨日", "今日", "明日"  # 列インデックス0に入れる文字列を取得。
+	else:
+		datetxt = selection.getString()
+		centerdate = date(*map(int, datetxt.split(datetxt[4])))
+		col0[todayindex] = "セル値"
+	if sdate:
+		
+		
+		numericfield1.setMin((sdate-centerdate).days//7)  # 最小週数を設定。
+		
+		
+		if centerdate<sdate:
+			centerdate = sdate + timedelta(days=todayindex)
+			numericfield1.setMin(0)  # 最小週数を設定。
+			col0 = [""]*7  # 全てに空文字を挿入。
+	if edate:
+		
+		
+		numericfield1.setMax((edate-centerdate).days//7)  # 最大週数を設定。
+		
+		
+		if edate<centerdate:
+			centerdate = edate - timedelta(days=todayindex)
+			numericfield1.setMax(0)  # 最大週数を設定。
+			col0 = [""]*7  # 全てに空文字を挿入。
+				
+	
+	
+# 	centerday = None
+# 	if cellvalue>0:  # セルの値が0より大きい時、日付シリアル値と断定する。文字列のときは0.0が返る。
+# 		functionaccess = smgr.createInstanceWithContext("com.sun.star.sheet.FunctionAccess", ctx)  # シート関数利用のため。	
+# 		if cellvalue!=functionaccess.callFunction("TODAY", ()):  # セルの数値が今日でない時。
+# 			centerday = date(*[int(functionaccess.callFunction(i, (cellvalue,))) for i in ("YEAR", "MONTH", "DAY")])  # シリアル値をシート関数で年、月、日に変換してdateオブジェクトにする。
+# 			col0[todayindex] = "セル値"
+# 	if centerday is None:
+# 		centerday = date.today()
+# 		col0[todayindex-1:todayindex+2] = "昨日", "今日", "明日"  # 列インデックス0に入れる文字列を取得。
+	
+# 	if sdate and edate:		
+# 		numericfield1.setMin((sdate-centerdate).days//7)  # 最小週数を設定。
+# 		numericfield1.setMax((edate-centerdate).days//7)  # 最大週数を設定。
+	addDays(gridcontrol1, centerdate, col0)  # グリッドコントロールに行を入れる。	
+# 	if cellvalue>0: # セルに値があった時。
+		
+		
+	gridcontrol1.selectRow(todayindex)  # 中央の行を選択する。
 	menulistener.args = controlcontainer, mouselistener, mousemotionlistener
 	dialogstate = dialogcommons.getSavedData(doc, "dialogstate_{}".format(dialogtitle))  # 保存データを取得。optioncontrolcontainerの表示状態は常にFalseなので保存されていない。
 	if dialogstate is not None:  # 保存してあるダイアログの状態がある時。
@@ -163,8 +197,8 @@ class TextListener(unohelper.Base, XTextListener):
 		if val==0:
 			if centerday==date.today():
 				col0[todayindex-1:todayindex+2] = "昨日", "今日", "明日"  # 列インデックス0に入れる文字列を取得。
-			else:	
-				col0[todayindex] = "セル値"
+# 			else:	
+# 				col0[todayindex] = "開始値"
 		else:
 			txt = "{}週後" if val>0 else "{}週前" 
 			col0[todayindex] = txt.format(int(abs(val)))  # valはfloatなので小数点が入ってくる。		
