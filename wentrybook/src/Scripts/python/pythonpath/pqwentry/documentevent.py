@@ -25,8 +25,8 @@ def documentOnLoad(xscriptcontext):  # ドキュメントを開いた時。リ�
 			sheetnames.append(sheetname)  # シート名を取得。
 			settlingdayrangeaddresses.append(i[beginningdayrow, daycolumn].getRangeAddress())  # 期首日のセル範囲アドレスを取得。
 			settlingdayrangeaddresses.append(i[enddayrow, daycolumn].getRangeAddress())  # 期末日のセル範囲アドレスを取得。
-			slipnorangeaddresses.append(i[splittedrow:, slipnocolumn:tekiyocolumn].getRangeAddress())  # 固定行以下の伝票番号列と取引日列のセル範囲アドレスを取得。
-			valuerangeaddresses.append(i[splittedrow:, splittedcolumn:].getRangeAddress())  # 固定行以下の固定列右のセル範囲アドレスを取得。
+			slipnorangeaddresses.append(i[splittedrow:, slipnocolumn:tekiyocolumn].getRangeAddress())  # 伝票番号列と取引日列のセル範囲アドレスを取得。固定行に行挿入でも反応できるように固定行の上行から付ける。
+			valuerangeaddresses.append(i[splittedrow:, splittedcolumn:].getRangeAddress())  # 固定列右のセル範囲アドレスを取得。固定行に行挿入でも反応できるように固定行の上行から付ける。
 	addModifyListener(doc, settlingdayrangeaddresses, journal.SettlingDayModifyListener(xscriptcontext))  # 決算日の変更を検知するリスナー。
 	addModifyListener(doc, slipnorangeaddresses, journal.SlipNoModifyListener(xscriptcontext))  # 伝票番号と取引日の変更を検知するリスナー。	
 	addModifyListener(doc, valuerangeaddresses, journal.ValueModifyListener(xscriptcontext))  # 伝票の金額の変更を検知するリスナー。	
