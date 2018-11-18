@@ -1,7 +1,7 @@
 #!/opt/libreoffice5.4/program/python
 # -*- coding: utf-8 -*-
 # 振替伝票シートについて。import pydevd; pydevd.settrace(stdoutToServer=True, stderrToServer=True)
-from . import commons, datedialog, dialogcommons, historydialog, menudialog
+from . import commons, datedialog, dialogcommons, documentevent, historydialog, menudialog
 import unohelper, os
 from itertools import chain, compress, count, filterfalse, islice, zip_longest
 from datetime import date, datetime, timedelta
@@ -383,70 +383,67 @@ def callback_menuCreator(xscriptcontext):  # 内側のスコープでクロー�
 			indicator.end()  # reset()の前にend()しておかないと元に戻らない。
 			indicator.reset()  # ここでリセットしておかないと例外が発生した時にリセットする機会がない。						
 		elif gridcelltxt=="次年度繰越":
-			sdatevalue, edatevalue = [VARS.sheet[i, VARS.daycolumn].getValue() for i in VARS.settlingdayrows]  # 期首日と期末日の日付シリアル値を取得。
-			if not (sdatevalue>0 and edatevalue>0):
-				commons.showErrorMessageBox(controller, "期首日と期末日を入力してください。\n処理を中止します。")	
-				return	
 			msgbox = querybox("{}\nを{}します。".format(settlingdaytxt, gridcelltxt))
 			if msgbox.execute()!=MessageBoxResults.YES:  # Yes以外の時はここで終わる。		
 				return			
-			sheetname = sheet.getName()
-			if not sheetname.endswith(sectiontxt):
-				sheet.setName("_".join([sheetname, sectiontxt]))
-			newsdatevalue = edatevalue + 1
-			newedatevalue = newsdatevalue + edatevalue - sdatevalue
-			
-
-			
-			
-						
+			if not all([startday, endday]):  # 開始日と終了日、いずれかが空文字の時。
+				commons.showErrorMessageBox(controller, "期首日と期末日を入力してください。\n処理を中止します。")	
+				return				
+			indicator = controller.getFrame().createStatusIndicator()  # 現ドキュメントのステータスインディケーターを取得。				
+			indicator.start("{}中".format(gridcelltxt), 5)	
+			indicator.setText("今期シートのデータを取得")
+			indicator.setValue(1)			
 			headerrows, datarows = getDataRows(xscriptcontext)  # 科目ヘッダー行とすべてのデータ行を取得。
 			if not headerrows:  # 伝票書式のエラーに引っかかった時ここで終わる。
 				return
-			
-			
-			
-			
-			# 新元入金の計算。
-			
-			# 元入金+（収益列計-経費列計）+事業主借ー事業主貸
-			
-			
-			
-			settledayno = "{}{:0>2}{:0>2}".format(*settlingdatedigits)
-			sheetname = sheet.getName()
-			if not sheetname.endswith(settledayno):
-				sheet.setName("".join([sheetname, settledayno]))
-			sheets = doc.getSheets()
-			newsheetname = "振替伝票{}{:0>2}{:0>2}".format(y+1, m, d)
-			if newsheetname in sheets:
-				msg = "{}はすでに存在します。\n金額のみ繰り越しますか?".format(newsheetname)
-				msgbox = toolkit.createMessageBox(componentwindow, QUERYBOX, MessageBoxButtons.BUTTONS_YES_NO+MessageBoxButtons.DEFAULT_BUTTON_YES, "WEntryBook", msg)
-				if msgbox.execute()!=MessageBoxResults.YES:  # Yes以外の時はここで終わる。		
-					return False  # セル編集モードにしない。			
+			indicator.setText("次期シートを取得")
+			indicator.setValue(2)	
+			sheetname = sheet.getName()  # 現シート名を取得。
+			settledaytxt = "{}決算".format(endday.replace("-", ""))
+			if not sheetname.endswith(settledaytxt):
+				sheet.setName("_".join([sheetname, settledaytxt]))  # 決算日を最後につけた名前にする。		
+			sheetname = sheet.getName()  # 現シート名を再取得。	
+			sheets = doc.getSheets()	
+			sheetnames = sorted(sheets.getElementNames())  # 全シート名のリストをソートして取得する。
+			newi = sheetnames.index(sheetname) + 1	 # 現シートの次の位置を取得。
+			newsheet = None
+			if newi<len(sheetnames):  # 現シート名の次の位置にインデックスをある時。
+				newsheetname = sheetnames[newi]  # 次の位置のシート名を取得。
+				if newsheetname.startswith("振替伝票"):  # 次期の振替伝票がすでにある時。
+					msgbox = querybox("{}はすでに存在します。\n金額のみ繰り越しますか?".format(newsheetname))
+					if msgbox.execute()!=MessageBoxResults.YES:  # Yes以外の時はここで終わる。		
+						return							
+					newsheet = sheets[newsheetname]  # 次期シートを取得。
+			if not newsheet:  # まだ次期シートが取得できていない時。
+				sdate, edate = date(*map(int, startday.split("-"))), date(*map(int, endday.split("-")))  # 現シートの期首日と期末日のdateオブジェクトを取得。
+				newsdate = edate + timedelta(days=1)  # 次期期首日のdateオブジェクトを取得。
+				newedate = newsdate + (edate - sdate)  # 次期期末日のdateオブジェクトを取得。dateオブジェクトの計算結果を加算しないとエラーになる。		
+				newsheetname = "振替伝票_{}決算".format(newedate.isoformat().replace("-", ""))
+				sheets.copyByName(sheetname, newsheetname, newi)  # 現シートをコピーして次期シートにする。
 				newsheet = sheets[newsheetname]
-				
-				
-				
-				
-										
-			else:
-				sheets.copyByName(sheetname, newsheetname, len(sheets))  # 現シートのコピーを最後に挿入。
-				newsheet = sheets[newsheetname]
-				newsheet[VARS.splittedrow:, :].clearContents(CellFlags.VALUE+CellFlags.DATETIME+CellFlags.STRING+CellFlags.ANNOTATION+CellFlags.FORMULA)
-			
-			
-			
-			
-	
-			
-	
-			
-			# シートをまるごとコピーして伝票行を削除。決算日を入力。
-			# 列毎小計を前記繰越行に代入。
-			# 列毎小計にもコピー。
-			
-			datarows[VARS.subtotalrow][VARS.splittedcolumn:]
+				newsheet[splittedrow:, :].clearContents(CellFlags.VALUE+CellFlags.DATETIME+CellFlags.STRING+CellFlags.ANNOTATION+CellFlags.FORMULA)  # 全伝票を全削除。
+				newsdaycell, newedaycell = [newsheet[i, daycolumn] for i in VARS.settlingdayrows]  # 次期シートの期首日セルと期末日セルを取得。
+				newsdaycell.setFormula(newsdate.isoformat())  # 新規期首日を代入。
+				newedaycell.setFormula(newedate.isoformat())  # 新規期末日を代入。				
+				documentevent.addModifyListener(doc, (i.getRangeAddress() for i in (newsdaycell, newedaycell)), SettlingDayModifyListener(xscriptcontext))  # 次期シートにModifyLsitenerの追加。
+				documentevent.addModifyListener(doc, [newsheet[splittedrow:, slipnocolumn:tekiyocolumn].getRangeAddress()], SlipNoModifyListener(xscriptcontext))  # 次期シートにModifyLsitenerの追加。
+				documentevent.addModifyListener(doc, [newsheet[splittedrow:, splittedcolumn:].getRangeAddress()], ValueModifyListener(xscriptcontext))  # 次期シートにModifyLsitenerの追加。
+			indicator.setText("次期期首元入金を取得")
+			indicator.setValue(3)	
+			headercolumns = tuple(zip(*headerrows, datarows[splittedrow-1][splittedcolumn:]))  # 小計行を追加した各列のタプルを取得。	
+			newgannyu = sum(i[-1] for i in headercolumns if (i[1] in ("経費", "収益")) or (i[2] in ("事業主貸", "事業主借", "元入金")))  # 事業主貸は正、事業主借は負、元入金は負、経費は正、収益は負、なのですべて合計すれば新元入金になる。	
+			indicator.setText("次期繰越金を取得")
+			indicator.setValue(4)					
+			carryovers = [newsheet[VARS.settlingdayrows[0], daycolumn].getValue(), "前期より繰越"]
+			conditions = lambda x: (x[1] in ("経費", "収益")) or (x[2] in ("事業主貸", "事業主借"))  # ヘッダー列を受け取ってブーリアンを返す。空文字を返す列をTrueにする。
+			outputs = lambda x: newgannyu if x[2]=="元入金" else x[-1]  # ヘッダー列を受け取って、金額を返す。元入金だけ新たな数値を返す。
+			carryovers.extend("" if conditions(i) else (outputs(i) or "") for i in headercolumns)  # 0の時は空文字を返す。
+			indicator.setValue(5)	
+			controller.setActiveSheet(newsheet)	
+			VARS.setSheet(newsheet)	 # 新規シートに更新する。これをしないとこのシートにModifyListenerが影響しない。
+			newsheet[splittedrow, daycolumn:daycolumn+len(carryovers)].setDataArray((carryovers,))
+			indicator.end()  # reset()の前にend()しておかないと元に戻らない。
+			indicator.reset()  # ここでリセットしておかないと例外が発生した時にリセットする機会がない。	
 	return callback_menu
 def drawTableBorders(xscriptcontext, frame):  # 選択範囲内すべてに罫線を引く。UNO APIでやる方法がわからない。線種の設定方法も不明。
 	ctx = xscriptcontext.getComponentContext()  # コンポーネントコンテクストの取得。
