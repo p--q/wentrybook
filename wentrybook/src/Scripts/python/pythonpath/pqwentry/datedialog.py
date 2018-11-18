@@ -74,6 +74,10 @@ def createDialog(enhancedmouseevent, xscriptcontext, dialogtitle, formatstring=N
 	todayindex = 7//2  # 今日の日付の位置を決定。切り下げ。
 	col0 = [""]*7  # 全てに空文字を挿入。
 	cellvalue = enhancedmouseevent.Target.getValue()  # セルの値を取得。
+	
+	
+	
+	
 	centerday = None
 	if cellvalue>0:  # セルの値が0より大きい時、日付シリアル値と断定する。文字列のときは0.0が返る。
 		functionaccess = smgr.createInstanceWithContext("com.sun.star.sheet.FunctionAccess", ctx)  # シート関数利用のため。	
