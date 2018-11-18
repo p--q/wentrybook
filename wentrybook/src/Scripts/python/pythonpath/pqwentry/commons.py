@@ -72,10 +72,6 @@ def cutcopypasteMenuEntries(addMenuentry):  # コンテクストメニュー追�
 	addMenuentry("ActionTrigger", {"CommandURL": ".uno:Cut"})
 	addMenuentry("ActionTrigger", {"CommandURL": ".uno:Copy"})
 	addMenuentry("ActionTrigger", {"CommandURL": ".uno:Paste"})
-def rowMenuEntries(addMenuentry):  # コンテクストメニュー追加。
-	addMenuentry("ActionTrigger", {"CommandURL": ".uno:InsertRowsBefore"})
-	addMenuentry("ActionTrigger", {"CommandURL": ".uno:InsertRowsAfter"})
-	addMenuentry("ActionTrigger", {"CommandURL": ".uno:DeleteRows"}) 
 def columnMenuEntries(addMenuentry):  # コンテクストメニュー追加。
 	addMenuentry("ActionTrigger", {"CommandURL": ".uno:InsertColumnsBefore"})
 	addMenuentry("ActionTrigger", {"CommandURL": ".uno:InsertColumnsAfter"})
