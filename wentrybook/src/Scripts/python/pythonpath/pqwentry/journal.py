@@ -828,9 +828,11 @@ def contextMenuEntries(entrynum, xscriptcontext):  # コンテクストメニュ
 		settle(sheet[selection.getCellAddress().Row, datarow.index("現金", VARS.splittedcolumn)])
 	elif entrynum==5:  # 決済
 		settle(selection)
-	elif entrynum==6:  # 伝票履歴
+	elif entrynum==6:  # 伝票履歴。単独セルの時のみ。
 		historydialog.createDialog(xscriptcontext, "伝票履歴", callback=callback_sliphistoryCreator(xscriptcontext))
-	elif entrynum==7:  # 伝票履歴に追加
+	elif entrynum==7:  # 伝票履歴に追加。複数行選択の時もあり。
+		
+		
 		newgriddatarows = []  # グリッドコントロールに追加する行のリスト。
 		datarows = sheet[:VARS.emptyrow, VARS.tekiyocolumn:VARS.emptycolumn].getDataArray()
 		rangeaddress = selection.getRangeAddress()  # 選択範囲のアドレスを取得。
@@ -846,6 +848,8 @@ def contextMenuEntries(entrynum, xscriptcontext):  # コンテクストメニュ
 							break
 					items.append("::".join([kamoku, hojokamoku, str(val), annotation]))
 			newgriddatarows.append(("//".join(items),))
+			
+			
 		doc = xscriptcontext.getDocument()
 		dialogtitle = "伝票履歴"
 		griddatarows = dialogcommons.getSavedData(doc, "GridDatarows_{}".format(dialogtitle))  # グリッドコントロールの行をconfigシートのragenameから取得する。	
@@ -855,11 +859,8 @@ def contextMenuEntries(entrynum, xscriptcontext):  # コンテクストメニュ
 			griddatarows = newgriddatarows
 		dialogcommons.saveData(doc, "GridDatarows_{}".format(dialogtitle), griddatarows)
 def settle(cell):
-		val = (cell.getValue()-VARS.sheet[cell.getCellAddress().Row, VARS.sliptotalcolumn].getValue()) or ""
-		if val:
-			cell.setValue(val)
-		else:
-			cell.setString(val)	
+		val = (cell.getValue()-VARS.sheet[cell.getCellAddress().Row, VARS.sliptotalcolumn].getValue()) or ""  # 0の時は空文字を代入。
+		cell.setDataArray(((val,),))  # 文字列でも数値でも代入できるのでsetDataArray()を使って代入。
 def callback_sliphistoryCreator(xscriptcontext):		
 	def callback_sliphistory(gridcelltxt):
 		sheet = VARS.sheet

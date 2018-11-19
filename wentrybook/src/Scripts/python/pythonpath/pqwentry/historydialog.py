@@ -1,7 +1,7 @@
 #!/opt/libreoffice5.4/program/python
 # -*- coding: utf-8 -*-
 import unohelper  # import pydevd; pydevd.settrace(stdoutToServer=True, stderrToServer=True)
-from . import dialogcommons
+from . import dialogcommons, exceptiondialog2
 from com.sun.star.accessibility import AccessibleRole  # 定数
 from com.sun.star.awt import XActionListener, XMenuListener, XMouseListener, XWindowListener, XTextListener, XItemListener
 from com.sun.star.awt import MenuItemStyle, MessageBoxButtons, MessageBoxResults, MouseButton, PopupMenuDirection, PosSize, ScrollBarOrientation  # 定数
@@ -302,7 +302,10 @@ class MouseListener(unohelper.Base, XMouseListener):
 					c = outputcolumn  # 同じ行の指定された列のセルに入力するようにする。
 				sheet[r, c].setString(rowdata[0])  # セルに代入。
 				if callback is not None:  # コールバック関数が与えられている時。
-					callback(rowdata[0])		
+					try:
+						callback(rowdata[0])		
+					except:  # これをしないとエラーダイアログが出てこない。
+						exceptiondialog2.createDialog(xscriptcontext)  # XSCRIPTCONTEXTを渡す。					
 				global DATAROWS
 				datarows = DATAROWS
 				if datarows:  # すでにグリッドコントロールにデータがある時。
