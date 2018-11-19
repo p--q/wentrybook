@@ -73,61 +73,41 @@ def createDialog(enhancedmouseevent, xscriptcontext, dialogtitle, formatstring=N
 	numericfield1.setFocus()
 	todayindex = 7//2  # 今日の日付の位置を決定。切り下げ。
 	col0 = [""]*7  # 全てに空文字を挿入。
-	
-	sdate, edate = journal.getDateSection()
-
-		
-	
-	selection = enhancedmouseevent.Target
+	selection = enhancedmouseevent.Target  # 選択セルを取得。
 	datevalue = selection.getValue()  # セルの値を取得。
-	if not datevalue>0:
-		centerdate = date.today()
+	if not datevalue>0:  # セルに日付が入っていない時。
+		centerdate = date.today()  # 今日の日付を中央にする。
 		col0[todayindex-1:todayindex+2] = "昨日", "今日", "明日"  # 列インデックス0に入れる文字列を取得。
-	else:
-		datetxt = selection.getString()
-		centerdate = date(*map(int, datetxt.split(datetxt[4])))
+	else:  # セルに日付が入っている時。
+		datetxt = selection.getString()  # 日付文字列を取得。2018-8-5などを想定。
+		centerdate = date(*map(int, datetxt.split(datetxt[4])))  # 日付文字列をdateオブジェクトにして中央にする。
 		col0[todayindex] = "セル値"
-	if sdate:
-		
-		
-		numericfield1.setMin((sdate-centerdate).days//7)  # 最小週数を設定。
-		
-		
-		if centerdate<sdate:
-			centerdate = sdate + timedelta(days=todayindex)
+	sdate, edate = journal.getDateSection()  # 期首日と期末日のdateオブジェクトを取得。
+	minweek, col0min, maxweek, col0max = None, None, None, None
+	if sdate:  # 期首日が取得出来ている時。
+		if centerdate<sdate:  # 期首日より新しい取得日の時。
+			centerdate = sdate + timedelta(days=todayindex)  # 期首日が１番上に来るようにする。
 			numericfield1.setMin(0)  # 最小週数を設定。
-			col0 = [""]*7  # 全てに空文字を挿入。
-	if edate:
-		
-		
-		numericfield1.setMax((edate-centerdate).days//7)  # 最大週数を設定。
-		
-		
-		if edate<centerdate:
-			centerdate = edate - timedelta(days=todayindex)
+			col0 = ("期首日", *[""]*6)
+		else:	
+			diffmindays = (centerdate-timedelta(days=todayindex)-sdate).days  # 期首日までの日数差。
+			minweek = diffmindays//-7  # 期首日までの週数差。負数が返る。
+			numericfield1.setMin(minweek)  # 最小週数を設定。
+			indexmin = (7-diffmindays%7)%7  # 最小週数での期首日の位置。
+			col0min = (*[""]*indexmin, "期首日", *[""]*(6-indexmin))
+	if edate:  # 期末日がある時。
+		if edate<centerdate:  # 期末日より古い取得日の時。
+			centerdate = edate - timedelta(days=todayindex)  # 期末日が一番下に来るようにする。
 			numericfield1.setMax(0)  # 最大週数を設定。
-			col0 = [""]*7  # 全てに空文字を挿入。
-				
-	
-	
-# 	centerday = None
-# 	if cellvalue>0:  # セルの値が0より大きい時、日付シリアル値と断定する。文字列のときは0.0が返る。
-# 		functionaccess = smgr.createInstanceWithContext("com.sun.star.sheet.FunctionAccess", ctx)  # シート関数利用のため。	
-# 		if cellvalue!=functionaccess.callFunction("TODAY", ()):  # セルの数値が今日でない時。
-# 			centerday = date(*[int(functionaccess.callFunction(i, (cellvalue,))) for i in ("YEAR", "MONTH", "DAY")])  # シリアル値をシート関数で年、月、日に変換してdateオブジェクトにする。
-# 			col0[todayindex] = "セル値"
-# 	if centerday is None:
-# 		centerday = date.today()
-# 		col0[todayindex-1:todayindex+2] = "昨日", "今日", "明日"  # 列インデックス0に入れる文字列を取得。
-	
-# 	if sdate and edate:		
-# 		numericfield1.setMin((sdate-centerdate).days//7)  # 最小週数を設定。
-# 		numericfield1.setMax((edate-centerdate).days//7)  # 最大週数を設定。
+			col0 = (*[""]*6, "期末日")  
+		else:		
+			diffmaxdays = (edate-timedelta(days=todayindex)-centerdate).days  # 期末日までの日数差。
+			maxweek = -(diffmaxdays//-7)   # 期末日までの週数差。
+			numericfield1.setMax(maxweek)  # 最大週数を設定。
+			indexmax = (diffmaxdays%7-1)%7  # 最大週数での期末日の位置。
+			col0max = (*[""]*indexmax, "期末日", *[""]*(6-indexmax))
+	textlistener.colargs = col0, minweek, col0min, maxweek, col0max		
 	addDays(gridcontrol1, centerdate, col0)  # グリッドコントロールに行を入れる。	
-# 	if cellvalue>0: # セルに値があった時。
-		
-		
-	gridcontrol1.selectRow(todayindex)  # 中央の行を選択する。
 	menulistener.args = controlcontainer, mouselistener, mousemotionlistener
 	dialogstate = dialogcommons.getSavedData(doc, "dialogstate_{}".format(dialogtitle))  # 保存データを取得。optioncontrolcontainerの表示状態は常にFalseなので保存されていない。
 	if dialogstate is not None:  # 保存してあるダイアログの状態がある時。
@@ -138,7 +118,7 @@ def createDialog(enhancedmouseevent, xscriptcontext, dialogtitle, formatstring=N
 				if closecheck is not None:
 					gridpopupmenu.checkItem(menuid, closecheck)	
 	args = doc, mouselistener, controlcontainer, mousemotionlistener, menulistener
-	dialogframe.addCloseListener(CloseListener(args))  # CloseListener。ノンモダルダイアログのリスナー削除用。		
+	dialogframe.addCloseListener(CloseListener(args))  # CloseListener。ノンモダルダイアログのリスナー削除用。	
 def addDays(gridcontrol, centerday, col0, daycount=7):
 	todayindex = 7//2  # 今日の日付の位置を決定。切り下げ。
 	startday = centerday - timedelta(days=1)*todayindex  # 開始dateを取得。
@@ -178,6 +158,7 @@ class CloseListener(unohelper.Base, XCloseListener):  # ノンモダルダイア
 class TextListener(unohelper.Base, XTextListener):
 	def __init__(self, *args):
 		self.args = args
+		self.colargs = None  # 一列目に関する引数のタプル。
 		self.val = 0  # 変更前の値。
 	def textChanged(self, textevent):
 		numericfield = textevent.Source
@@ -194,11 +175,14 @@ class TextListener(unohelper.Base, XTextListener):
 		diff = val - self.val  # 前値との差を取得。
 		centerday += timedelta(days=7*diff)  # 週を移動。
 		col0 = [""]*7
-		if val==0:
-			if centerday==date.today():
-				col0[todayindex-1:todayindex+2] = "昨日", "今日", "明日"  # 列インデックス0に入れる文字列を取得。
-# 			else:	
-# 				col0[todayindex] = "開始値"
+		col0init, minweek, col0min, maxweek, col0max = self.colargs	
+		if val==0:  # 開始日の時。
+			if col0init is not None:
+				col0 = col0init
+		elif minweek and val==minweek:
+			col0 = col0min	
+		elif maxweek and val==maxweek:
+			col0 = col0max	
 		else:
 			txt = "{}週後" if val>0 else "{}週前" 
 			col0[todayindex] = txt.format(int(abs(val)))  # valはfloatなので小数点が入ってくる。		
