@@ -201,18 +201,11 @@ def kurikoshi(xscriptcontext, querybox, txt, startday, endday):
 		commons.showErrorMessageBox(controller, "期首日と期末日を入力してください。\n処理を中止します。")	
 		return				
 	indicator = controller.getFrame().createStatusIndicator()  # 現ドキュメントのステータスインディケーターを取得。				
-	indicator.start("{}中".format(txt), 5)	
-	indicator.setText("今期シートのデータを取得")
-	indicator.setValue(1)			
+	indicator.start("{}中".format(txt), 0)		
 	headerrows, datarows = getDataRows(xscriptcontext)  # 科目ヘッダー行とすべてのデータ行を取得。
 	if not headerrows:  # 伝票書式のエラーに引っかかった時ここで終わる。
 		return
-	indicator.setText("次期期首元入金を取得")
-	indicator.setValue(2)	
-	headercolumns = tuple(zip(*headerrows, datarows[VARS.splittedrow-1][VARS.splittedcolumn:]))  # 小計行を追加した各列のタプルを取得。	
-	newgannyu = sum(i[-1] for i in headercolumns if (i[1] in ("経費", "収益")) or (i[2] in ("事業主貸", "事業主借", "元入金")))  # 事業主貸は正、事業主借は負、元入金は負、経費は正、収益は負、なのですべて合計すれば新元入金になる。
 	indicator.setText("次期シートを取得")
-	indicator.setValue(3)	
 	sheetname = sheet.getName()  # 現シート名を取得。
 	settledaytxt = "{}決算".format(endday.replace("-", ""))
 	if not sheetname.endswith(settledaytxt):
@@ -228,29 +221,14 @@ def kurikoshi(xscriptcontext, querybox, txt, startday, endday):
 			msgbox = querybox("{}はすでに存在します。\n金額のみ繰り越しますか?".format(newsheetname))
 			if msgbox.execute()!=MessageBoxResults.YES:  # Yes以外の時はここで終わる。		
 				return							
-			newsheet = sheets[newsheetname]  # 既存の次期シートを取得。
-			indicator.setText("次期繰越金を取得")
-			indicator.setValue(4)		
+			newsheet = sheets[newsheetname]  # 既存の次期シートを取得。		
 			VARS.setSheet(newsheet)	 # 新規シートに更新する。これをしないとこのシートにModifyListenerが影響しない。
 			newdatarows = newsheet[VARS.kamokurow-1:VARS.kamokurow+2, splittedcolumn:VARS.emptycolumn].getDataArray()
 			kubuns = []  # 科目行の上の区分行。
 			[kubuns.append(i if i else kubuns[-1]) for i in newdatarows[0]]  # 区分行をすべて埋める。				
 			kamokus = []
 			[kamokus.append(i if i else kamokus[-1]) for i in newdatarows[1]]  # 科目行をすべて埋める。
-			newheaderrows = kubuns, kamokus, newdatarows[2]  # 区分行、科目行、補助科目行。					
-			carryovers = []  # 繰越行を取得するリスト。
-			oldheadercolumns = tuple(zip(*headerrows[1:]))  # 前期の、(区分、科目、補助科目)のタプルを取得。
-			for i in zip(*newheaderrows):  # 次期の(区分、科目、補助科目)をイテレート。
-				val = ""
-				if i in oldheadercolumns:  # 次期シートの(区分、科目、補助科目)が、前記シートの(区分、科目、補助科目)にある時。
-					j = headercolumns[oldheadercolumns.index(i)]  # 前記シートの(列インデックス、区分、科目、補助科目, 小計)を取得。
-					if (j[1] in ("経費", "収益")) or (j[2] in ("事業主貸", "事業主借")):  # 区分が経費や収益の時、または、科目が事業主貸や事業主借の時。
-						pass  # 空セルのまま。
-					elif j[2]=="元入金":  # 科目が元入金の時。
-						val = newgannyu  # 新元入金を取得。
-					else:
-						val = j[-1]  # 小計を取得。
-				carryovers.append(val or "")  # 0のときは空文字を返す。
+			newheaderrowsgene = zip(kubuns, kamokus, newdatarows[2])  # (区分行、科目行、補助科目行)をイテレートする。				
 			if newsheet[splittedrow, daycolumn+1].getString()!="前期より繰越":  # 先頭行が繰越伝票でない時。
 				newsheet.insertCells(newsheet[splittedrow, :].getRangeAddress(), insert_rows)  # 空行を挿入。
 				documentevent.addModifyListener(doc, [newsheet[splittedrow, slipnocolumn:tekiyocolumn].getRangeAddress()], SlipNoModifyListener(xscriptcontext))  # 新規行にModifyListenerを付ける。
@@ -270,15 +248,28 @@ def kurikoshi(xscriptcontext, querybox, txt, startday, endday):
 		documentevent.addModifyListener(doc, (i.getRangeAddress() for i in (newsdaycell, newedaycell)), SettlingDayModifyListener(xscriptcontext))  # 次期シートにModifyLsitenerの追加。
 		documentevent.addModifyListener(doc, [newsheet[splittedrow:, slipnocolumn:tekiyocolumn].getRangeAddress()], SlipNoModifyListener(xscriptcontext))  # 次期シートにModifyLsitenerの追加。
 		documentevent.addModifyListener(doc, [newsheet[splittedrow:, splittedcolumn:].getRangeAddress()], ValueModifyListener(xscriptcontext))  # 次期シートにModifyLsitenerの追加。
-		indicator.setText("次期繰越金を取得")
-		indicator.setValue(4)			
-		conditions = lambda x: (x[1] in ("経費", "収益")) or (x[2] in ("事業主貸", "事業主借"))  # ヘッダー列を受け取ってブーリアンを返す。空文字を返す列をTrueにする。
-		outputs = lambda x: newgannyu if x[2]=="元入金" else x[-1]  # ヘッダー列を受け取って、金額を返す。元入金だけ新たな数値を返す。
-		carryovers = ["" if conditions(i) else (outputs(i) or "") for i in headercolumns]  # 0の時は空文字を返す。
+		newheaderrowsgene = zip(*headerrows, datarows[VARS.splittedrow-1][VARS.splittedcolumn:])  # (区分行、科目行、補助科目行)をイテレートする。			
+	indicator.start("次期繰越金を取得", len(datarows[0]))		
+	columnstotaldic = {i[:-1]: i[-1] for i in zip(*headerrows[1:], datarows[VARS.splittedrow-1][VARS.splittedcolumn:]) if i[-1]}  # キー: (区分、科目、補助科目)のタプル、値: 各列計、の辞書を取得。各列0が0や空セルのものは取得しない。
+	newgannyu = sum(v for k, v in columnstotaldic.items() if (k[0] in ("経費", "収益")) or (k[1] in ("事業主貸", "事業主借", "元入金")))  # 事業主貸は正、事業主借は負、元入金は負、経費は正、収益は負、なのですべて合計すれば新元入金になる。
+	carryovers = []  # 繰越行を取得するリスト。
+	t = 1
+	for i in newheaderrowsgene:  # 次期の(区分、科目、補助科目)をイテレート。
+		indicator.setValue(t)	
+		t += 1
+		if i[1]=="元入金":  # 科目が元入金の時。
+			val = newgannyu  # 新元入金を取得。				
+		elif i in columnstotaldic:  # 前期の(区分、科目、補助科目)が一致するものがあるとき。
+			if (i[0] in ("経費", "収益")) or (i[1] in ("事業主貸", "事業主借")):  # 区分が経費や収益の時、または、科目が事業主貸や事業主借の時。
+				val = ""  # 空セル。
+			else:
+				val = columnstotaldic[i]  # 小計を取得。					
+		else:
+			val = ""	
+		carryovers.append(val or "")  # 0のときは空文字を返す。
 	datarow = (newsheet[VARS.settlingdayrows[0], daycolumn].getValue(), "前期より繰越", *carryovers)  # ジェネレーターにしないと*で展開できない。
-	indicator.setValue(5)	
 	controller.setActiveSheet(newsheet)  # 次期シートをアクティブにする。
-	newsheet[splittedrow, daycolumn:daycolumn+len(datarow)].setDataArray((datarow,))  # 繰越金行を挿入。
+	newsheet[splittedrow, daycolumn:daycolumn+len(datarow)].setDataArray((datarow,))  # 繰越金行を代入。
 	indicator.end()  # reset()の前にend()しておかないと元に戻らない。
 	indicator.reset()  # ここでリセットしておかないと例外が発生した時にリセットする機会がない。	
 def createShisanhyo(xscriptcontext, txt):
