@@ -294,18 +294,6 @@ class MouseListener(unohelper.Base, XMouseListener):
 				j = selectedrowindexes[0]  # グリッドコントロールの選択行インデックスを取得。
 				griddata = gridcontrol.getModel().getPropertyValue("GridDataModel")  # GridDataModelを取得。グリッドコントロールは1列と決めつけて処理する。
 				rowdata = griddata.getRowData(j)  # グリッドコントロールで選択している行のすべての列をタプルで取得。
-				controller = doc.getCurrentController()  # 現在のコントローラを取得。			
-				sheet = controller.getActiveSheet()
-				celladdress = selection.getCellAddress()
-				r, c = celladdress.Row, celladdress.Column
-				if outputcolumn is not None:  # 出力する列が指定されている時。
-					c = outputcolumn  # 同じ行の指定された列のセルに入力するようにする。
-				sheet[r, c].setString(rowdata[0])  # セルに代入。
-				if callback is not None:  # コールバック関数が与えられている時。
-					try:
-						callback(rowdata[0])		
-					except:  # これをしないとエラーダイアログが出てこない。
-						exceptiondialog2.createDialog(xscriptcontext)  # XSCRIPTCONTEXTを渡す。					
 				global DATAROWS
 				datarows = DATAROWS
 				if datarows:  # すでにグリッドコントロールにデータがある時。
@@ -321,7 +309,18 @@ class MouseListener(unohelper.Base, XMouseListener):
 					if itemtext.startswith("セル入力で閉じる"):
 						if gridpopupmenu.isItemChecked(menuid):  # 選択項目にチェックが入っている時。
 							self.dialogframe.close(True)  # gridcontrolのMouseListenerを外しておかないとクラッシュする。
-							break						
+							break			
+				celladdress = selection.getCellAddress()
+				r, c = celladdress.Row, celladdress.Column
+				if outputcolumn is not None:  # 出力する列が指定されている時。
+					c = outputcolumn  # 同じ行の指定された列のセルに入力するようにする。
+				if callback is None:  # コールバック関数が与えられていない時。
+					doc.getCurrentController().getActiveSheet()[r, c].setString(rowdata[0])  # セルに代入。
+				else:  # コールバック関数が与えられている時。
+					try:
+						callback(rowdata[0])		
+					except:  # これをしないとエラーダイアログが出てこない。
+						exceptiondialog2.createDialog(xscriptcontext)  # XSCRIPTCONTEXTを渡す。			
 	def mouseReleased(self, mouseevent):
 		pass
 	def mouseEntered(self, mouseevent):

@@ -16,7 +16,7 @@ def saveData(doc, rangename, obj):	# configシートの名前rangenameにobjをJ
 	if rangename in namedranges:  # 名前がある時。
 		referredcells = namedranges[rangename].getReferredCells()  # 名前の参照セル範囲を取得。
 		if referredcells:  # 参照セル範囲がある時。
-			referredcells.setString(json.dumps(obj,  ensure_ascii=False))  # rangenameという名前のセルに文字列でPythonオブジェクトを出力する。
+			referredcells.setString(json.dumps(obj, ensure_ascii=False))  # rangenameという名前のセルに文字列でPythonオブジェクトを出力する。
 			return
 		else:  # 名前があるが参照セル範囲がない時。
 			namedranges.removeByName(rangename)  # 名前は重複しているとエラーになるので削除する。	

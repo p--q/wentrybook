@@ -38,7 +38,7 @@ def createBorders():# 枠線の作成。
 	return noneline, tableborder2, topbottomtableborder, leftrighttableborder  # 作成した枠線をまとめたタプル。
 def showErrorMessageBox(controller, msg):
 	componentwindow = controller.ComponentWindow
-	msgbox = componentwindow.getToolkit().createMessageBox(componentwindow, ERRORBOX, MessageBoxButtons.BUTTONS_OK, "myRs", msg)
+	msgbox = componentwindow.getToolkit().createMessageBox(componentwindow, ERRORBOX, MessageBoxButtons.BUTTONS_OK, "WEntryBook", msg)
 	msgbox.execute()	
 def contextmenuHelper(sheetvars, contextmenuexecuteevent, xscriptcontext):	
 	controller = contextmenuexecuteevent.Selection  # コントローラーは逐一取得しないとgetSelection()が反映されない。。
@@ -72,10 +72,6 @@ def cutcopypasteMenuEntries(addMenuentry):  # コンテクストメニュー追�
 	addMenuentry("ActionTrigger", {"CommandURL": ".uno:Cut"})
 	addMenuentry("ActionTrigger", {"CommandURL": ".uno:Copy"})
 	addMenuentry("ActionTrigger", {"CommandURL": ".uno:Paste"})
-def columnMenuEntries(addMenuentry):  # コンテクストメニュー追加。
-	addMenuentry("ActionTrigger", {"CommandURL": ".uno:InsertColumnsBefore"})
-	addMenuentry("ActionTrigger", {"CommandURL": ".uno:InsertColumnsAfter"})
-	addMenuentry("ActionTrigger", {"CommandURL": ".uno:DeleteColumns"}) 	
 def getBaseURL(xscriptcontext):	 # 埋め込みマクロのScriptingURLのbaseurlを返す。__file__はvnd.sun.star.tdoc:/4/Scripts/python/filename.pyというように返ってくる。
 	ctx = xscriptcontext.getComponentContext()  # コンポーネントコンテクストの取得。
 	smgr = ctx.getServiceManager()  # サービスマネージャーの取得。

@@ -235,7 +235,7 @@ class MouseListener(unohelper.Base, XMouseListener):
 								try:
 									callback(datetxt)	
 								except:  # これをしないとエラーダイアログが出てこない。
-									exceptiondialog2.createDialog(xscriptcontext)  # XSCRIPTCONTEXTを渡す。	
+									exceptiondialog2.createDialog(xscriptcontext)  # XSCRIPTCONTEXTを渡す。		
 					for menuid in range(1, self.gridpopupmenu.getItemCount()+1):  # ポップアップメニューを走査する。
 						itemtext = self.gridpopupmenu.getItemText(menuid)  # 文字列にはショートカットキーがついてくる。
 						if itemtext.startswith("セル入力で閉じる"):
