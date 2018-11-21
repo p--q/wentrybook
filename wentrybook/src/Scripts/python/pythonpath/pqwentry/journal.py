@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 # 振替伝票シートについて。import pydevd; pydevd.settrace(stdoutToServer=True, stderrToServer=True)
 from . import commons, datedialog, dialogcommons, documentevent, historydialog, menudialog
-import unohelper, os
+import unohelper, os, json
 from itertools import chain, compress, count, filterfalse, islice, zip_longest
 from datetime import date, datetime, timedelta
 from com.sun.star.awt import MouseButton, MessageBoxButtons, MessageBoxResults  # 定数
@@ -11,7 +11,7 @@ from com.sun.star.beans import PropertyValue  # Struct
 from com.sun.star.sheet import CellFlags  # 定数
 from com.sun.star.sheet.CellInsertMode import ROWS as insert_rows  # enum
 from com.sun.star.table import BorderLine2, TableBorder2 # Struct
-from com.sun.star.table import BorderLineStyle, CellVertJustify2  # 定数
+from com.sun.star.table import CellVertJustify2  # 定数
 from com.sun.star.table.CellHoriJustify import CENTER, LEFT, RIGHT  # enum
 from com.sun.star.ui import ActionTriggerSeparatorType  # 定数
 from com.sun.star.ui.ContextMenuInterceptorAction import EXECUTE_MODIFIED  # enum
@@ -201,18 +201,11 @@ def kurikoshi(xscriptcontext, querybox, txt, startday, endday):
 		commons.showErrorMessageBox(controller, "期首日と期末日を入力してください。\n処理を中止します。")	
 		return				
 	indicator = controller.getFrame().createStatusIndicator()  # 現ドキュメントのステータスインディケーターを取得。				
-	indicator.start("{}中".format(txt), 5)	
-	indicator.setText("今期シートのデータを取得")
-	indicator.setValue(1)			
+	indicator.start("{}中".format(txt), 0)		
 	headerrows, datarows = getDataRows(xscriptcontext)  # 科目ヘッダー行とすべてのデータ行を取得。
 	if not headerrows:  # 伝票書式のエラーに引っかかった時ここで終わる。
 		return
-	indicator.setText("次期期首元入金を取得")
-	indicator.setValue(2)	
-	headercolumns = tuple(zip(*headerrows, datarows[VARS.splittedrow-1][VARS.splittedcolumn:]))  # 小計行を追加した各列のタプルを取得。	
-	newgannyu = sum(i[-1] for i in headercolumns if (i[1] in ("経費", "収益")) or (i[2] in ("事業主貸", "事業主借", "元入金")))  # 事業主貸は正、事業主借は負、元入金は負、経費は正、収益は負、なのですべて合計すれば新元入金になる。
 	indicator.setText("次期シートを取得")
-	indicator.setValue(3)	
 	sheetname = sheet.getName()  # 現シート名を取得。
 	settledaytxt = "{}決算".format(endday.replace("-", ""))
 	if not sheetname.endswith(settledaytxt):
@@ -228,29 +221,10 @@ def kurikoshi(xscriptcontext, querybox, txt, startday, endday):
 			msgbox = querybox("{}はすでに存在します。\n金額のみ繰り越しますか?".format(newsheetname))
 			if msgbox.execute()!=MessageBoxResults.YES:  # Yes以外の時はここで終わる。		
 				return							
-			newsheet = sheets[newsheetname]  # 既存の次期シートを取得。
-			indicator.setText("次期繰越金を取得")
-			indicator.setValue(4)		
+			newsheet = sheets[newsheetname]  # 既存の次期シートを取得。		
 			VARS.setSheet(newsheet)	 # 新規シートに更新する。これをしないとこのシートにModifyListenerが影響しない。
-			newdatarows = newsheet[VARS.kamokurow-1:VARS.kamokurow+2, splittedcolumn:VARS.emptycolumn].getDataArray()
-			kubuns = []  # 科目行の上の区分行。
-			[kubuns.append(i if i else kubuns[-1]) for i in newdatarows[0]]  # 区分行をすべて埋める。				
-			kamokus = []
-			[kamokus.append(i if i else kamokus[-1]) for i in newdatarows[1]]  # 科目行をすべて埋める。
-			newheaderrows = kubuns, kamokus, newdatarows[2]  # 区分行、科目行、補助科目行。					
-			carryovers = []  # 繰越行を取得するリスト。
-			oldheadercolumns = tuple(zip(*headerrows[1:]))  # 前期の、(区分、科目、補助科目)のタプルを取得。
-			for i in zip(*newheaderrows):  # 次期の(区分、科目、補助科目)をイテレート。
-				val = ""
-				if i in oldheadercolumns:  # 次期シートの(区分、科目、補助科目)が、前記シートの(区分、科目、補助科目)にある時。
-					j = headercolumns[oldheadercolumns.index(i)]  # 前記シートの(列インデックス、区分、科目、補助科目, 小計)を取得。
-					if (j[1] in ("経費", "収益")) or (j[2] in ("事業主貸", "事業主借")):  # 区分が経費や収益の時、または、科目が事業主貸や事業主借の時。
-						pass  # 空セルのまま。
-					elif j[2]=="元入金":  # 科目が元入金の時。
-						val = newgannyu  # 新元入金を取得。
-					else:
-						val = j[-1]  # 小計を取得。
-				carryovers.append(val or "")  # 0のときは空文字を返す。
+			newdatarows = newsheet[:VARS.kamokurow+2, :VARS.emptycolumn].getDataArray()  # 補助科目行までのデータ行を取得。
+			newheaderrowsgene = zip(*generateHeaderRows(newdatarows[:VARS.kamokurow+2])[1:])  # (区分行、科目行、補助科目行)をイテレートする。		
 			if newsheet[splittedrow, daycolumn+1].getString()!="前期より繰越":  # 先頭行が繰越伝票でない時。
 				newsheet.insertCells(newsheet[splittedrow, :].getRangeAddress(), insert_rows)  # 空行を挿入。
 				documentevent.addModifyListener(doc, [newsheet[splittedrow, slipnocolumn:tekiyocolumn].getRangeAddress()], SlipNoModifyListener(xscriptcontext))  # 新規行にModifyListenerを付ける。
@@ -270,15 +244,28 @@ def kurikoshi(xscriptcontext, querybox, txt, startday, endday):
 		documentevent.addModifyListener(doc, (i.getRangeAddress() for i in (newsdaycell, newedaycell)), SettlingDayModifyListener(xscriptcontext))  # 次期シートにModifyLsitenerの追加。
 		documentevent.addModifyListener(doc, [newsheet[splittedrow:, slipnocolumn:tekiyocolumn].getRangeAddress()], SlipNoModifyListener(xscriptcontext))  # 次期シートにModifyLsitenerの追加。
 		documentevent.addModifyListener(doc, [newsheet[splittedrow:, splittedcolumn:].getRangeAddress()], ValueModifyListener(xscriptcontext))  # 次期シートにModifyLsitenerの追加。
-		indicator.setText("次期繰越金を取得")
-		indicator.setValue(4)			
-		conditions = lambda x: (x[1] in ("経費", "収益")) or (x[2] in ("事業主貸", "事業主借"))  # ヘッダー列を受け取ってブーリアンを返す。空文字を返す列をTrueにする。
-		outputs = lambda x: newgannyu if x[2]=="元入金" else x[-1]  # ヘッダー列を受け取って、金額を返す。元入金だけ新たな数値を返す。
-		carryovers = ["" if conditions(i) else (outputs(i) or "") for i in headercolumns]  # 0の時は空文字を返す。
+		newheaderrowsgene = zip(*headerrows[1:])  # (区分行、科目行、補助科目行)をイテレートする。			
+	indicator.start("次期繰越金を取得", len(datarows[0]))		
+	columnstotaldic = {i[:-1]: i[-1] for i in zip(*headerrows[1:], datarows[VARS.splittedrow-1][VARS.splittedcolumn:]) if i[-1]}  # キー: (区分、科目、補助科目)のタプル、値: 各列計、の辞書を取得。各列0が0や空セルのものは取得しない。
+	newgannyu = sum(v for k, v in columnstotaldic.items() if (k[0] in ("経費", "収益")) or (k[1] in ("事業主貸", "事業主借", "元入金")))  # 事業主貸は正、事業主借は負、元入金は負、経費は正、収益は負、なのですべて合計すれば新元入金になる。
+	carryovers = []  # 繰越行を取得するリスト。
+	t = 1
+	for i in newheaderrowsgene:  # 次期の(区分、科目、補助科目)をイテレート。
+		indicator.setValue(t)	
+		t += 1
+		if i[1]=="元入金":  # 科目が元入金の時。
+			val = newgannyu  # 新元入金を取得。				
+		elif i in columnstotaldic:  # 前期の(区分、科目、補助科目)が一致するものがあるとき。
+			if (i[0] in ("経費", "収益")) or (i[1] in ("事業主貸", "事業主借")):  # 区分が経費や収益の時、または、科目が事業主貸や事業主借の時。
+				val = ""  # 空セル。
+			else:
+				val = columnstotaldic[i]  # 小計を取得。					
+		else:
+			val = ""	
+		carryovers.append(val or "")  # 0のときは空文字を返す。
 	datarow = (newsheet[VARS.settlingdayrows[0], daycolumn].getValue(), "前期より繰越", *carryovers)  # ジェネレーターにしないと*で展開できない。
-	indicator.setValue(5)	
 	controller.setActiveSheet(newsheet)  # 次期シートをアクティブにする。
-	newsheet[splittedrow, daycolumn:daycolumn+len(datarow)].setDataArray((datarow,))  # 繰越金行を挿入。
+	newsheet[splittedrow, daycolumn:daycolumn+len(datarow)].setDataArray((datarow,))  # 繰越金行を代入。
 	indicator.end()  # reset()の前にend()しておかないと元に戻らない。
 	indicator.reset()  # ここでリセットしておかないと例外が発生した時にリセットする機会がない。	
 def createShisanhyo(xscriptcontext, txt):
@@ -717,12 +704,14 @@ def getDataRows(xscriptcontext):
 	if msg:
 		commons.showErrorMessageBox(controller, "{}\n処理を中止します。".format(msg))	
 		return ("",)*2		
+	headerrows = generateHeaderRows(datarows[:VARS.kamokurow+2])
+	return headerrows, datarows
+def generateHeaderRows(datarows):  # 列インデックス、区分、科目、補助科目、の行のタプルを空セルを埋めて返す。
 	kubuns = []  # 科目行の上の区分行。
 	[kubuns.append(i if i else kubuns[-1]) for i in datarows[VARS.kamokurow-1][VARS.splittedcolumn:]]  # 区分行をすべて埋める。				
 	kamokus = []
 	[kamokus.append(i if i else kamokus[-1]) for i in datarows[VARS.kamokurow][VARS.splittedcolumn:]]  # 科目行をすべて埋める。
-	headerrows = range(VARS.splittedcolumn, VARS.emptycolumn), kubuns, kamokus, datarows[VARS.kamokurow+1][VARS.splittedcolumn:]  # 列インデックス行, 区分行、科目行、補助科目行。
-	return headerrows, datarows
+	return range(VARS.splittedcolumn, VARS.emptycolumn), kubuns, kamokus, datarows[VARS.kamokurow+1][VARS.splittedcolumn:]  # 列インデックス行, 区分行、科目行、補助科目行。	
 def selectionChanged(eventobject, xscriptcontext):  # 矢印キーでセル移動した時も発火する。
 	selection = eventobject.Source.getSelection()	
 	if selection.supportsService("com.sun.star.sheet.SheetCellRange"):  # 選択範囲がセル範囲の時。
@@ -791,7 +780,10 @@ def notifyContextMenuExecute(contextmenuexecuteevent, xscriptcontext):  # 右ク
 		if c>=VARS.splittedcolumn:
 			commons.cutcopypasteMenuEntries(addMenuentry)
 			addMenuentry("ActionTriggerSeparator", {"SeparatorType": ActionTriggerSeparatorType.LINE})		
-			commons.columnMenuEntries(addMenuentry)		
+			if c!=VARS.splittedcolumn:  # ModifyListenrが外れるので固定列の左に行の挿入はしない。
+				addMenuentry("ActionTrigger", {"CommandURL": ".uno:InsertColumnsBefore"})
+			addMenuentry("ActionTrigger", {"CommandURL": ".uno:InsertColumnsAfter"})
+			addMenuentry("ActionTrigger", {"CommandURL": ".uno:DeleteColumns"}) 				
 			if len(selection.getColumns())>1:  # 複数列を選択している時。
 				addMenuentry("ActionTriggerSeparator", {"SeparatorType": ActionTriggerSeparatorType.LINE})		
 				addMenuentry("ActionTrigger", {"CommandURL": ".uno:Group"})	
@@ -828,80 +820,94 @@ def contextMenuEntries(entrynum, xscriptcontext):  # コンテクストメニュ
 		settle(sheet[selection.getCellAddress().Row, datarow.index("現金", VARS.splittedcolumn)])
 	elif entrynum==5:  # 決済
 		settle(selection)
-	elif entrynum==6:  # 伝票履歴
-		historydialog.createDialog(xscriptcontext, "伝票履歴", callback=callback_sliphistoryCreator(xscriptcontext))
-	elif entrynum==7:  # 伝票履歴に追加
-		newgriddatarows = []  # グリッドコントロールに追加する行のリスト。
-		datarows = sheet[:VARS.emptyrow, VARS.tekiyocolumn:VARS.emptycolumn].getDataArray()
-		rangeaddress = selection.getRangeAddress()  # 選択範囲のアドレスを取得。
-		for i in range(rangeaddress.StartRow, rangeaddress.EndRow+1):  # 行インデックスをイテレート。
-			items = [datarows[i][0]]  # 摘要を取得。
-			for j, val in enumerate(datarows[i][1:], start=1):  # リストのインデックスと値をイテレート。
-				if val!="":  # 空セルでない時。つまり金額が入っている時。
-					hojokamoku = datarows[VARS.kamokurou+1][j]  # 補助科目を取得。
-					annotation = sheet[i, VARS.tekiyocolumn+j].getAnnotation().getString()  # セルコメントを取得。
-					for k in range(j, 0, -1):  # 科目行を左にイテレート。
-						kamoku = datarows[VARS.kamokurow][k]  # 科目を取得。
-						if kamoku:  # 科目が取得できたらfor文を抜ける。
-							break
-					items.append("::".join([kamoku, hojokamoku, str(val), annotation]))
-			newgriddatarows.append(("//".join(items),))
-		doc = xscriptcontext.getDocument()
-		dialogtitle = "伝票履歴"
-		griddatarows = dialogcommons.getSavedData(doc, "GridDatarows_{}".format(dialogtitle))  # グリッドコントロールの行をconfigシートのragenameから取得する。	
-		if griddatarows:  # 行のリストが取得出来た時。
-			griddatarows.extend(newgriddatarows)
-		else:
-			griddatarows = newgriddatarows
-		dialogcommons.saveData(doc, "GridDatarows_{}".format(dialogtitle), griddatarows)
-def settle(cell):
-		val = (cell.getValue()-VARS.sheet[cell.getCellAddress().Row, VARS.sliptotalcolumn].getValue()) or ""
-		if val:
-			cell.setValue(val)
-		else:
-			cell.setString(val)	
-def callback_sliphistoryCreator(xscriptcontext):		
-	def callback_sliphistory(gridcelltxt):
-		sheet = VARS.sheet
-		headerrows = sheet[VARS.kamokurow:VARS.kamokurou+1+1, :VARS.emptycolumn].getDataArray()  # 科目行と補助科目行を取得。
-		controller = xscriptcontext.getDocument().getCurrentController()  # コントローラの取得。
-		selection = controller.getSelection()  # 選択範囲を取得。選択範囲はセルのみ。	
-		r = selection.getCellAddress().Row
-		datarange = sheet[r, :VARS.emptycolumn]  # 代入するセル範囲を取得。
-		datarow = list(datarange.getDataArray()[0])  # 選択行をリストで取得。
-		items = gridcelltxt.split("//")
-		datarow[VARS.tekiyocolumn] = items[0]  # 摘要を取得。
-		comments = []  # コメントのセルとコメントのタプルを取得するリスト。
-		recalccols = []  # 再計算する列インデックスのリスト。
-		for item in items[1:]:
-			kamoku, hojokamoku, val, annotation = item.split("::")
-			if headerrows[0][VARS.splittedcolumn:].count(kamoku)==1:  # 科目行に該当する科目が１つの時のみ。
-				c = headerrows[0].index(kamoku, VARS.splittedcolumn)  # その科目の列インデックスを取得。
-				if hojokamoku:  # 補助科目がある時。
-					if headerrows[1][c:].count(hojokamoku)==1:  # 補助科目行にその補助科目が１つの時のみ。
-						c = headerrows[1].index(hojokamoku, c)  # その補助科目の列インデックスを取得。
-					else:
-						commons.showErrorMessageBox(controller, "補助科目「{}」の列を同定できません。".format(hojokamoku))
-						return	
-				datarow[c] = float(val)  # セルに入れる数値。
-				recalccols.append(c)
-				if annotation:  # コメントがある時。
-					comments.append((sheet[r, c], annotation))  # setDataArray()でコメントがクリアされるのでここでセルとコメントの文字列をタプルで取得しておく。
-			else:
-				commons.showErrorMessageBox(controller, "科目「{}」の列を同定できません。".format(kamoku))
+	elif entrynum==6:  # 伝票履歴。単独セルの時のみ。
+		datarow = sheet[selection.getCellAddress().Row, VARS.daycolumn+1:VARS.emptycolumn].getDataArray()[0]
+		if any(filter(None, datarow)):
+			msg = "すでに伝票データが存在する行です。\n上書きしますか？"
+			componentwindow = controller.ComponentWindow
+			msgbox = componentwindow.getToolkit().createMessageBox(componentwindow, QUERYBOX, MessageBoxButtons.BUTTONS_YES_NO+MessageBoxButtons.DEFAULT_BUTTON_YES, "WEntryBook", msg)
+			if msgbox.execute()!=MessageBoxResults.YES:  # Yes以外の時はここで終わる。			
 				return
-		deadnogene = (j for j in count(1) if j not in list(chain.from_iterable(sheet[VARS.splittedrow:VARS.emptyrow, VARS.slipnocolumn].getDataArray())))
-		datarow[VARS.slipnocolumn] = datarow[VARS.slipnocolumn] or next(deadnogene)  # 伝票番号を取得。
-		datarow[VARS.sliptotalcolumn] = sum(filter(lambda x: isinstance(x, float), datarow[VARS.splittedcolumn:]))  # 行の合計を取得。	
-		datarange.setDataArray((datarow,))
+		historydialog.createDialog(xscriptcontext, "伝票履歴", callback=callback_sliphistoryCreator(xscriptcontext, selection))
+	elif entrynum==7:  # 伝票履歴に追加。複数行選択の時もあり。
+		newgriddatarows = []  # グリッドコントロールに追加する行のリスト。
+		datarows = sheet[:VARS.emptyrow, :VARS.emptycolumn].getDataArray()
+		headerrows = generateHeaderRows(datarows[:VARS.kamokurow+2])
+		rangeaddress = selection.getRangeAddress()  # 選択範囲のアドレスを取得。
+		tekiyocolumn = VARS.daycolumn + 1
+		splittedcolumn = VARS.splittedcolumn
+		for i in range(rangeaddress.StartRow, rangeaddress.EndRow+1):  # 行インデックスをイテレート。
+			datarow = datarows[i]
+			key = datarow[tekiyocolumn]  # 摘要を取得。
+			if not key:
+				commons.showErrorMessageBox(controller, "摘要がない行は履歴に追加できません。")	
+				continue
+			columnsgene = compress(zip(*headerrows, datarow[splittedcolumn:]), datarow[splittedcolumn:])  # 金額のある列のみ(列インデックス、区分、科目、補助科目、金額)をイテレートするジェネレーター。。
+			kamokuvaldic = {"/".join(j[1:4]): (int(j[4]), sheet[i, j[0]].getAnnotation().getString().strip()) for j in columnsgene}  # キー: (区分,科目,補助科目)を結合した文字列、値: (金額、コメント)の辞書。jsonに変換するにはキーは文字列でないといけない。
+			griddatarow = "{}: {}".format(key, json.dumps(kamokuvaldic, ensure_ascii=False)),  # 辞書オブジェクトはJSONで文字列にする。
+			newgriddatarows.append(griddatarow)
+		if newgriddatarows:
+			doc = xscriptcontext.getDocument()
+			dialogtitle = "伝票履歴"
+			griddatarows = dialogcommons.getSavedData(doc, "GridDatarows_{}".format(dialogtitle))  # グリッドコントロールの行をconfigシートのragenameから取得する。	
+			if griddatarows:  # 行のリストが取得出来た時。
+				griddatarows.extend(newgriddatarows)
+			else:
+				griddatarows = newgriddatarows
+			dialogcommons.saveData(doc, "GridDatarows_{}".format(dialogtitle), griddatarows)
+def settle(cell):
+		val = (cell.getValue()-VARS.sheet[cell.getCellAddress().Row, VARS.sliptotalcolumn].getValue()) or ""  # 0の時は空文字を代入。
+		cell.setDataArray(((val,),))  # 文字列でも数値でも代入できるのでsetDataArray()を使って代入。
+def callback_sliphistoryCreator(xscriptcontext, selection):		
+	def callback_sliphistory(gridcelltxt):
+		tekiyo, jsondata = gridcelltxt.split(":", 1)  # 摘要、と、科目金額辞書の文字列を取得する。
+		try:
+			kamokuvaldic = json.loads(jsondata)  # 科目金額辞書の文字列を辞書オブジェクトに復元する。
+		except json.JSONDecodeError as e:  # json構文にエラーがある時。
+			line = e.doc.split("\n")[e.lineno-1]  # エラーのある文字列の行を取得。
+			length = 40  # 表示する文字列の2行分の文字数。全角も半角も一文字となる。
+			c = length//2  # 表示中央までの文字数。
+			erp = e.pos   # エラー位置。
+			sp = None
+			ep = None
+			f = line[:erp]  # エラー位置前までの文字列。
+			s = line[erp:]  # エラー位置以降の文字列。
+			if len(line)>length:  # 元の文字列が表示文字列より長い時。
+				fc = len(f)  # エラー位置前までの文字列の長さを取得。
+				sc = len(s)  # エラー位置以降の文字列の長さを取得。
+				if fc<c:  # エラー位置までの文字列が表示中央までの文字数より短い時。
+					ep = erp + length - fc  # エラー位置以降の文字列の長さを伸ばして取得。
+				elif sc<c:  # エラー位置以降の文字列が表示中央までの文字数より短い時。
+					sp = erp - length + sc # エラー位置前までの文字列の長さを伸ばして取得。
+				else:  # どちらも中央までの文字列数が同じの時。
+					sp = erp - c
+					ep = erp+length-c
+				f = line[sp:erp]	
+				s = line[erp:ep] 	
+			msg = "JSONで解読できない文字列です。\n\n{0}\n\n[{1:>4}:{2:<4}] {4}\n\n[{2:>4}:{3:<4}] {5}".format(e, sp or "", erp or "", ep or "", f, s)
+			commons.showErrorMessageBox(xscriptcontext.getDocument().getCurrentController(), msg)	
+			return
+		kamokuvaldic = {tuple(k.split("/")): v for k, v in kamokuvaldic.items()}  # 科目金額辞書のキーをタプルに変換して再取得。	
+		sheet = VARS.sheet
+		datarows = sheet[:VARS.kamokurow+2, :VARS.emptycolumn].getDataArray()
+		headerrows = generateHeaderRows(datarows)
+		newdatarow = [tekiyo]	
+		comments = []  # コメントのセルとコメントのタプルを取得するリスト。
+		r = selection.getCellAddress().Row
+		for i in zip(*headerrows):  # (列インデックス、区分、科目、補助科目)をイテレートする。	
+			if i[1:] in kamokuvaldic:
+				val, annotation = kamokuvaldic.pop(i[1:])
+				if annotation:
+					comments.append((sheet[r, i[0]], annotation))  # setDataArray()でコメントがクリアされるのでここでセルとコメントの文字列をタプルで取得しておく。
+			else:
+				val = ""		
+			newdatarow.append(val)
+		sheet[r, VARS.daycolumn+1:VARS.emptycolumn].setDataArray((newdatarow,))
 		annotations = sheet.getAnnotations()  # コメントコレクションを取得。
 		for i in comments:
 			cell, annotation = i
 			annotations.insertNew(cell.getCellAddress(), annotation)  # コメントを挿入。
-			cell.getAnnotation().getAnnotationShape().setPropertyValue("Visible", False)  # これをしないとmousePressed()のTargetにAnnotationShapeが入ってしまう。		
-		VARS.setSheet(sheet)  # 逐次変化する値を取得。伝票番号列の最終行を再取得したい。
-		datarows = sheet[VARS.subtotalrow:VARS.emptyrow, min(recalccols):max(recalccols)+1].getDataArray()  # 個別の列だけ再計算するのは面倒なので、連続する列すべてを再計算する。
-		sheet[VARS.subtotalrow, min(recalccols):max(recalccols)+1].setDataArray(([sum(filter(lambda x: isinstance(x, float), i)) for i in zip(*datarows[1:])],))  # 列ごとの合計を取得。			
+			cell.getAnnotation().getAnnotationShape().setPropertyValue("Visible", False)  # これをしないとmousePressed()のTargetにAnnotationShapeが入ってしまう。				
 	return callback_sliphistory	
 def getDateSection():  # 期首日と期末日のdateオブジェクトのタプルを返す。
 	dates = []

@@ -73,61 +73,47 @@ def createDialog(enhancedmouseevent, xscriptcontext, dialogtitle, formatstring=N
 	numericfield1.setFocus()
 	todayindex = 7//2  # 今日の日付の位置を決定。切り下げ。
 	col0 = [""]*7  # 全てに空文字を挿入。
-	
-	sdate, edate = journal.getDateSection()
-
-		
-	
-	selection = enhancedmouseevent.Target
+	selection = enhancedmouseevent.Target  # 選択セルを取得。
 	datevalue = selection.getValue()  # セルの値を取得。
-	if not datevalue>0:
-		centerdate = date.today()
+	if not datevalue>0:  # セルに日付が入っていない時。
+		centerdate = date.today()  # 今日の日付を中央にする。
 		col0[todayindex-1:todayindex+2] = "昨日", "今日", "明日"  # 列インデックス0に入れる文字列を取得。
-	else:
-		datetxt = selection.getString()
-		centerdate = date(*map(int, datetxt.split(datetxt[4])))
+	else:  # セルに日付が入っている時。
+		datetxt = selection.getString()  # 日付文字列を取得。2018-8-5などを想定。
+		centerdate = date(*map(int, datetxt.split(datetxt[4])))  # 日付文字列をdateオブジェクトにして中央にする。
 		col0[todayindex] = "セル値"
-	if sdate:
-		
-		
-		numericfield1.setMin((sdate-centerdate).days//7)  # 最小週数を設定。
-		
-		
-		if centerdate<sdate:
-			centerdate = sdate + timedelta(days=todayindex)
-			numericfield1.setMin(0)  # 最小週数を設定。
-			col0 = [""]*7  # 全てに空文字を挿入。
-	if edate:
-		
-		
-		numericfield1.setMax((edate-centerdate).days//7)  # 最大週数を設定。
-		
-		
-		if edate<centerdate:
-			centerdate = edate - timedelta(days=todayindex)
-			numericfield1.setMax(0)  # 最大週数を設定。
-			col0 = [""]*7  # 全てに空文字を挿入。
-				
-	
-	
-# 	centerday = None
-# 	if cellvalue>0:  # セルの値が0より大きい時、日付シリアル値と断定する。文字列のときは0.0が返る。
-# 		functionaccess = smgr.createInstanceWithContext("com.sun.star.sheet.FunctionAccess", ctx)  # シート関数利用のため。	
-# 		if cellvalue!=functionaccess.callFunction("TODAY", ()):  # セルの数値が今日でない時。
-# 			centerday = date(*[int(functionaccess.callFunction(i, (cellvalue,))) for i in ("YEAR", "MONTH", "DAY")])  # シリアル値をシート関数で年、月、日に変換してdateオブジェクトにする。
-# 			col0[todayindex] = "セル値"
-# 	if centerday is None:
-# 		centerday = date.today()
-# 		col0[todayindex-1:todayindex+2] = "昨日", "今日", "明日"  # 列インデックス0に入れる文字列を取得。
-	
-# 	if sdate and edate:		
-# 		numericfield1.setMin((sdate-centerdate).days//7)  # 最小週数を設定。
-# 		numericfield1.setMax((edate-centerdate).days//7)  # 最大週数を設定。
-	addDays(gridcontrol1, centerdate, col0)  # グリッドコントロールに行を入れる。	
-# 	if cellvalue>0: # セルに値があった時。
-		
-		
-	gridcontrol1.selectRow(todayindex)  # 中央の行を選択する。
+	sdate, edate = journal.getDateSection()  # 期首日と期末日のdateオブジェクトを取得。
+	lowerlimit, col0min, upperlimit, col0max = None, None, None, None
+	if sdate:  # 期首日が取得出来ている時。
+		if centerdate<sdate:  # 期首日より新しい取得日の時。
+			centerdate = sdate + timedelta(days=todayindex)  # 期首日が１番上に来るようにする。
+			lowerlimit = 0  # 最小週数を設定。
+			col0 = ("期首日", *[""]*6)
+		else:	
+			diffmindays = (centerdate-timedelta(days=todayindex)-sdate).days  # 期首日までの日数差。
+			lowerlimit = diffmindays//-7  # 期首日までの週数差。負数が返る。
+			indexmin = (7-diffmindays%7)%7  # 最小週数での期首日の位置。
+			col0min = (*[""]*indexmin, "期首日", *[""]*(6-indexmin))
+	if edate:  # 期末日がある時。
+		if edate<centerdate:  # 期末日より古い取得日の時。
+			centerdate = edate - timedelta(days=todayindex)  # 期末日が一番下に来るようにする。
+			upperlimit = 0  # 最大週数を設定。
+			numericfield1.setMax(0)
+			col0 = (*[""]*6, "期末日")  
+		else:		
+			diffmaxdays = (edate-timedelta(days=todayindex)-centerdate).days  # 期末日までの日数差。
+			upperlimit = -(diffmaxdays//-7)   # 期末日までの週数差。
+			indexmax = (diffmaxdays%7-1)%7  # 最大週数での期末日の位置。
+			col0max = (*[""]*indexmax, "期末日", *[""]*(6-indexmax))
+	if selection.getCellAddress().Row>=journal.VARS.splittedrow:  # 選択セルが固定行以下の時のみ上限と下限を指定する。
+		if lowerlimit is not None:	
+			numericfield1.setMin(lowerlimit)  # 最小週数を設定。		
+		if upperlimit is not None:
+			numericfield1.setMax(upperlimit)  # 最大週数を設定。		
+	textlistener.colargs = col0, lowerlimit, col0min, upperlimit, col0max		
+	addDays = addDaysCreator(selection, gridcontrol1, sdate, edate)
+	textlistener.addDays = addDays
+	addDays(centerdate, col0)  # グリッドコントロールに行を入れる。	
 	menulistener.args = controlcontainer, mouselistener, mousemotionlistener
 	dialogstate = dialogcommons.getSavedData(doc, "dialogstate_{}".format(dialogtitle))  # 保存データを取得。optioncontrolcontainerの表示状態は常にFalseなので保存されていない。
 	if dialogstate is not None:  # 保存してあるダイアログの状態がある時。
@@ -138,21 +124,26 @@ def createDialog(enhancedmouseevent, xscriptcontext, dialogtitle, formatstring=N
 				if closecheck is not None:
 					gridpopupmenu.checkItem(menuid, closecheck)	
 	args = doc, mouselistener, controlcontainer, mousemotionlistener, menulistener
-	dialogframe.addCloseListener(CloseListener(args))  # CloseListener。ノンモダルダイアログのリスナー削除用。		
-def addDays(gridcontrol, centerday, col0, daycount=7):
+	dialogframe.addCloseListener(CloseListener(args))  # CloseListener。ノンモダルダイアログのリスナー削除用。	
+def addDaysCreator(selection, gridcontrol, sdate, edate):
 	todayindex = 7//2  # 今日の日付の位置を決定。切り下げ。
-	startday = centerday - timedelta(days=1)*todayindex  # 開始dateを取得。
-	dategene = (startday+timedelta(days=i) for i in range(daycount))  # daycount分のdateオブジェクトのジェネレーターを取得。
-	weekdays = "月", "火", "水", "木", "金", "土", "日"	
-	sdate, edate = journal.getDateSection()
-	if sdate and edate:
-		datetxtgene = ("{}-{}-{}({})".format(i.year, i.month, i.day, weekdays[i.weekday()]) if sdate<=i<=edate else "" for i in dategene)  # 年度開始日と終了日以外には空文字を入れる。	
-	else:	
-		datetxtgene = ("{}-{}-{}({})".format(i.year, i.month, i.day, weekdays[i.weekday()]) for i in dategene) 
-	datarows = tuple(zip(col0, datetxtgene))  # 列インデックス0に語句、列インデックス1に日付を入れる。
-	griddatamodel = gridcontrol.getModel().getPropertyValue("GridDataModel")  # GridDataModel
-	griddatamodel.removeAllRows()  # グリッドコントロールの行を全削除。
-	griddatamodel.addRows(("",)*len(datarows), datarows)  # グリッドに行を追加。	
+	weekdays = "月", "火", "水", "木", "金", "土", "日"		
+	if selection.getCellAddress().Row<journal.VARS.splittedrow or not all([sdate, edate]):  # 選択セルが固定行より上、または期首と期末が指定されていない時。
+		datetxtgene = lambda x: ("{}({})".format(i.isoformat(), weekdays[i.weekday()]) for i in x) 	
+	elif all([sdate, edate]):  # 期首日と期末日ともに指定されている時。
+		datetxtgene = lambda x: ("{}({})".format(i.isoformat(), weekdays[i.weekday()]) if sdate<=i<=edate else "" for i in x)  # 年度開始日と終了日以外には空文字を入れる。	
+	elif sdate:  # 期首日のみ指定の時。
+		datetxtgene = lambda x: ("{}({})".format(i.isoformat(), weekdays[i.weekday()]) if sdate<=i else "" for i in x)  	
+	elif edate:  # 期末日のみ指定の時。
+		datetxtgene = lambda x: ("{}({})".format(i.isoformat(), weekdays[i.weekday()]) if i<=edate else "" for i in x)
+	def addDays(centerdate, col0):
+		startdate = centerdate - timedelta(days=1)*todayindex  # 開始dateを取得。
+		dategene = (startdate+timedelta(days=i) for i in range(7))  # dateオブジェクトのジェネレーターを取得。
+		datarows = tuple(zip(col0, datetxtgene(dategene)))  # 列インデックス0に語句、列インデックス1に日付を入れる。
+		griddatamodel = gridcontrol.getModel().getPropertyValue("GridDataModel")  # GridDataModel
+		griddatamodel.removeAllRows()  # グリッドコントロールの行を全削除。
+		griddatamodel.addRows(("",)*len(datarows), datarows)  # グリッドに行を追加。	
+	return addDays
 class CloseListener(unohelper.Base, XCloseListener):  # ノンモダルダイアログのリスナー削除用。
 	def __init__(self, args):
 		self.args = args
@@ -176,33 +167,37 @@ class CloseListener(unohelper.Base, XCloseListener):  # ノンモダルダイア
 	def disposing(self, eventobject):  
 		pass
 class TextListener(unohelper.Base, XTextListener):
-	def __init__(self, *args):
-		self.args = args
+	def __init__(self, gridcontrol):
+		self.gridcontrol = gridcontrol
+		self.colargs = None  # 一列目に関する引数のタプル。
 		self.val = 0  # 変更前の値。
+		self.addDays = None  # グリッドコントロールに日付を追加する関数。
 	def textChanged(self, textevent):
 		numericfield = textevent.Source
-		gridcontrol, = self.args
 		todayindex = 7//2  # 本日と同じインデックスを取得。
-		griddatamodel = gridcontrol.getModel().getPropertyValue("GridDataModel")
+		griddatamodel = self.gridcontrol.getModel().getPropertyValue("GridDataModel")
 		datetxt = griddatamodel.getCellData(1, 0)  # 先頭行の日付文字列を取得。
 		if datetxt:  # 先頭行に日付文字列がある時。
-			centerday = date(*map(int, datetxt.split("(")[0].split("-"))) + timedelta(days=todayindex)
+			centerdate = date(*map(int, datetxt.split("(")[0].split("-"))) + timedelta(days=todayindex)
 		else:  # 先頭行に日付文字列がない時は最終行から日付文字列を取得する。
 			datetxt = griddatamodel.getCellData(1, griddatamodel.RowCount-1)  # 最終行の日付文字列を取得。
-			centerday = date(*map(int, datetxt.split("(")[0].split("-"))) - timedelta(days=todayindex)
+			centerdate = date(*map(int, datetxt.split("(")[0].split("-"))) - timedelta(days=todayindex)
 		val = numericfield.getValue()  # 数値フィールドの値を取得。		
 		diff = val - self.val  # 前値との差を取得。
-		centerday += timedelta(days=7*diff)  # 週を移動。
+		centerdate += timedelta(days=7*diff)  # 週を移動。
 		col0 = [""]*7
-		if val==0:
-			if centerday==date.today():
-				col0[todayindex-1:todayindex+2] = "昨日", "今日", "明日"  # 列インデックス0に入れる文字列を取得。
-# 			else:	
-# 				col0[todayindex] = "開始値"
+		col0init, lowerlimit, col0min, upperlimit, col0max = self.colargs	
+		if val==0:  # 開始日の時。
+			if col0init is not None:
+				col0 = col0init
+		elif lowerlimit is not None and val==lowerlimit:
+			col0 = col0min	
+		elif upperlimit is not None and val==upperlimit:
+			col0 = col0max	
 		else:
 			txt = "{}週後" if val>0 else "{}週前" 
-			col0[todayindex] = txt.format(int(abs(val)))  # valはfloatなので小数点が入ってくる。		
-		addDays(gridcontrol, centerday, col0)  # グリッドコントロールに行を入れる。
+			col0[todayindex] = txt.format(int(abs(val)))  # valはfloatなので小数点が入ってくる。	
+		self.addDays(centerdate, col0)  # グリッドコントロールに行を入れる。
 		self.val = val  # 変更後の値を前値として取得。
 	def disposing(self, eventobject):
 		pass
@@ -218,14 +213,21 @@ class MouseListener(unohelper.Base, XMouseListener):
 		if mouseevent.Buttons==MouseButton.LEFT:
 			if mouseevent.ClickCount==1:  # シングルクリックでセルに入力する。
 				if self.flg:
+					closeflg = False  # ダイアログを閉じた時に立てるフラグ。		
 					doc = xscriptcontext.getDocument()
 					selection = doc.getCurrentSelection()  # シート上で選択しているオブジェクトを取得。
 					if selection.supportsService("com.sun.star.sheet.SheetCell"):  # 選択オブジェクトがセルの時。
+						sheet = selection.getSpreadsheet()
 						rowindexes = dialogcommons.getSelectedRowIndexes(gridcontrol)  # グリッドコントロールの選択行インデックスを返す。昇順で返す。負数のインデックスがある時は要素をクリアする。
 						if rowindexes:
+							for menuid in range(1, self.gridpopupmenu.getItemCount()+1):  # ポップアップメニューを走査する。
+								itemtext = self.gridpopupmenu.getItemText(menuid)  # 文字列にはショートカットキーがついてくる。
+								if itemtext.startswith("セル入力で閉じる"):
+									if self.gridpopupmenu.isItemChecked(menuid):  # 選択項目にチェックが入っている時。
+										self.dialogframe.close(True)  # 用が終わったらさっさと閉じないとその前にブレークや例外がでるとマウスが使えなくなる。
+										closeflg = True							
 							datetxt = gridcontrol.getModel().getPropertyValue("GridDataModel").getCellData(1, rowindexes[0])  # 選択行の日付文字列を取得。
 							if outputcolumn is not None:  # 出力する列が指定されている時。
-								sheet = selection.getSpreadsheet()
 								selection = sheet[selection.getCellAddress().Row, outputcolumn]  # 同じ行の指定された列のセルを取得。						
 							if formatstring is not None:  # 書式が与えられている時。
 								numberformats = doc.getNumberFormats()  # ドキュメントのフォーマット一覧を取得。デフォルトのフォーマット一覧はCalcの書式→セル→数値でみれる。
@@ -241,18 +243,10 @@ class MouseListener(unohelper.Base, XMouseListener):
 									callback(datetxt)	
 								except:  # これをしないとエラーダイアログが出てこない。
 									exceptiondialog2.createDialog(xscriptcontext)  # XSCRIPTCONTEXTを渡す。	
-					for menuid in range(1, self.gridpopupmenu.getItemCount()+1):  # ポップアップメニューを走査する。
-						itemtext = self.gridpopupmenu.getItemText(menuid)  # 文字列にはショートカットキーがついてくる。
-						if itemtext.startswith("セル入力で閉じる"):
-							if self.gridpopupmenu.isItemChecked(menuid):  # 選択項目にチェックが入っている時。
-								self.dialogframe.close(True)
-							else:
-								controller = doc.getCurrentController()  # 現在のコントローラを取得。	
-								sheet = controller.getActiveSheet()
+							if not closeflg:  # ダイアログが閉じられていない時。
 								celladdress = selection.getCellAddress()
 								nextcell = sheet[celladdress.Row+1, celladdress.Column]  # 下のセルを取得。
-								controller.select(nextcell)  # 下のセルを選択。							
-							break
+								doc.getCurrentController().select(nextcell)  # 下のセルを選択。							
 				else:
 					self.flg = True		
 		elif mouseevent.Buttons==MouseButton.RIGHT:  # 右ボタンクリックの時。mouseevent.PopupTriggerではサブジェクトによってはTrueにならないので使わない。

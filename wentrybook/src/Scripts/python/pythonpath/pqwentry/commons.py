@@ -38,7 +38,7 @@ def createBorders():# 枠線の作成。
 	return noneline, tableborder2, topbottomtableborder, leftrighttableborder  # 作成した枠線をまとめたタプル。
 def showErrorMessageBox(controller, msg):
 	componentwindow = controller.ComponentWindow
-	msgbox = componentwindow.getToolkit().createMessageBox(componentwindow, ERRORBOX, MessageBoxButtons.BUTTONS_OK, "myRs", msg)
+	msgbox = componentwindow.getToolkit().createMessageBox(componentwindow, ERRORBOX, MessageBoxButtons.BUTTONS_OK, "WEntryBook", msg)
 	msgbox.execute()	
 def contextmenuHelper(sheetvars, contextmenuexecuteevent, xscriptcontext):	
 	controller = contextmenuexecuteevent.Selection  # コントローラーは逐一取得しないとgetSelection()が反映されない。。
@@ -72,21 +72,12 @@ def cutcopypasteMenuEntries(addMenuentry):  # コンテクストメニュー追�
 	addMenuentry("ActionTrigger", {"CommandURL": ".uno:Cut"})
 	addMenuentry("ActionTrigger", {"CommandURL": ".uno:Copy"})
 	addMenuentry("ActionTrigger", {"CommandURL": ".uno:Paste"})
-def columnMenuEntries(addMenuentry):  # コンテクストメニュー追加。
-	addMenuentry("ActionTrigger", {"CommandURL": ".uno:InsertColumnsBefore"})
-	addMenuentry("ActionTrigger", {"CommandURL": ".uno:InsertColumnsAfter"})
-	addMenuentry("ActionTrigger", {"CommandURL": ".uno:DeleteColumns"}) 	
 def getBaseURL(xscriptcontext):	 # 埋め込みマクロのScriptingURLのbaseurlを返す。__file__はvnd.sun.star.tdoc:/4/Scripts/python/filename.pyというように返ってくる。
-	ctx = xscriptcontext.getComponentContext()  # コンポーネントコンテクストの取得。
-	smgr = ctx.getServiceManager()  # サービスマネージャーの取得。
-	doc = xscriptcontext.getDocument()  # ドキュメントのモデルを取得。 
 	modulepath = __file__  # ScriptingURLにするマクロがあるモジュールのパスを取得。ファイルのパスで場合分け。sys.path[0]は__main__の位置が返るので不可。
 	ucp = "vnd.sun.star.tdoc:"  # 埋め込みマクロのucp。
-	filepath = modulepath.replace(ucp, "")  #  ucpを除去。
-	transientdocumentsdocumentcontentfactory = smgr.createInstanceWithContext("com.sun.star.frame.TransientDocumentsDocumentContentFactory", ctx)
-	transientdocumentsdocumentcontent = transientdocumentsdocumentcontentfactory.createDocumentContent(doc)
-	contentidentifierstring = transientdocumentsdocumentcontent.getIdentifier().getContentIdentifier()  # __file__の数値部分に該当。
-	macrofolder = "{}/Scripts/python".format(contentidentifierstring.replace(ucp, ""))  #埋め込みマクロフォルダへのパス。	
+	filepath = modulepath.replace(ucp, "")  #  ucpを除去。ドキュメントを一旦閉じて開き直してもContentIdentifierが更新されない。
+	filepath = os.path.join(*filepath.split("/")[2:])  # Scripts/python/pythonpath/indoc/commons.py。ContentIdentifierを除く。
+	macrofolder = "Scripts/python"
 	location = "document"  # マクロの場所。	
 	relpath = os.path.relpath(filepath, start=macrofolder)  # マクロフォルダからの相対パスを取得。パス区切りがOS依存で返ってくる。
 	return "vnd.sun.star.script:{}${}?language=Python&location={}".format(relpath.replace(os.sep, "|"), "{}", location)  # ScriptingURLのbaseurlを取得。Windowsのためにos.sepでパス区切りを置換。	
