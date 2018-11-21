@@ -1,12 +1,14 @@
 #!/opt/libreoffice5.4/program/python
 # -*- coding: utf-8 -*-
-# import pydevd; pydevd.settrace(stdoutToServer=True, stderrToServer=True)
-# import platform
+# ドキュメントイベントについて。import pydevd; pydevd.settrace(stdoutToServer=True, stderrToServer=True)
 from . import journal
-# ドキュメントイベントについて。
 MODIFYLISTENERS = []  # ModifyListenerのサブジェクトとリスナーのタプルのリスト。
 def documentOnLoad(xscriptcontext):  # ドキュメントを開いた時。リスナー追加後。
 	doc = xscriptcontext.getDocument()  # ドキュメントのモデルを取得。 
+	namedranges = doc.getPropertyValue("NamedRanges")  # ドキュメントのNamedRangesを取得。
+	for i in namedranges.getElementNames():  # namedrangesをイテレートするとfor文中でnamedrangesを操作してはいけない。
+		if not namedranges[i].getReferredCells():
+			namedranges.removeByName(i)  # 参照範囲がエラーの名前を削除する。	
 	sheets = doc.getSheets()
 	journalvars = journal.VARS  # 振替伝票シート固有値。
 	beginningdayrow, enddayrow = journalvars.settlingdayrows  # 期首日セルと期末日セルの行インデックスを取得。
