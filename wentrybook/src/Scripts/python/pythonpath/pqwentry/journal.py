@@ -11,7 +11,7 @@ from com.sun.star.beans import PropertyValue  # Struct
 from com.sun.star.sheet import CellFlags  # 定数
 from com.sun.star.sheet.CellInsertMode import ROWS as insert_rows  # enum
 from com.sun.star.table import BorderLine2, TableBorder2 # Struct
-from com.sun.star.table import BorderLineStyle, CellVertJustify2  # 定数
+from com.sun.star.table import CellVertJustify2  # 定数
 from com.sun.star.table.CellHoriJustify import CENTER, LEFT, RIGHT  # enum
 from com.sun.star.ui import ActionTriggerSeparatorType  # 定数
 from com.sun.star.ui.ContextMenuInterceptorAction import EXECUTE_MODIFIED  # enum
@@ -822,7 +822,7 @@ def contextMenuEntries(entrynum, xscriptcontext):  # コンテクストメニュ
 		settle(selection)
 	elif entrynum==6:  # 伝票履歴。単独セルの時のみ。
 		datarow = sheet[selection.getCellAddress().Row, VARS.daycolumn+1:VARS.emptycolumn].getDataArray()[0]
-		if filter(None, datarow):
+		if any(filter(None, datarow)):
 			msg = "すでに伝票データが存在する行です。\n上書きしますか？"
 			componentwindow = controller.ComponentWindow
 			msgbox = componentwindow.getToolkit().createMessageBox(componentwindow, QUERYBOX, MessageBoxButtons.BUTTONS_YES_NO+MessageBoxButtons.DEFAULT_BUTTON_YES, "WEntryBook", msg)
@@ -843,8 +843,8 @@ def contextMenuEntries(entrynum, xscriptcontext):  # コンテクストメニュ
 				commons.showErrorMessageBox(controller, "摘要がない行は履歴に追加できません。")	
 				continue
 			columnsgene = compress(zip(*headerrows, datarow[splittedcolumn:]), datarow[splittedcolumn:])  # 金額のある列のみ(列インデックス、区分、科目、補助科目、金額)をイテレートするジェネレーター。。
-			kamokuvaldic = {"/".join(j[1:4]): (int(j[4]), sheet[i, j[0]].getAnnotation().getString().strip()) for j in columnsgene}  # キー: (区分,科目,補助科目)を結合した文字列、値: (金額、コメント)の辞書。jsonに変換するにはキーは文字列でないといけないので。
-			griddatarow = "{}: {}".format(key, json.dumps(kamokuvaldic, ensure_ascii=False)),
+			kamokuvaldic = {"/".join(j[1:4]): (int(j[4]), sheet[i, j[0]].getAnnotation().getString().strip()) for j in columnsgene}  # キー: (区分,科目,補助科目)を結合した文字列、値: (金額、コメント)の辞書。jsonに変換するにはキーは文字列でないといけない。
+			griddatarow = "{}: {}".format(key, json.dumps(kamokuvaldic, ensure_ascii=False)),  # 辞書オブジェクトはJSONで文字列にする。
 			newgriddatarows.append(griddatarow)
 		if newgriddatarows:
 			doc = xscriptcontext.getDocument()
@@ -860,20 +860,34 @@ def settle(cell):
 		cell.setDataArray(((val,),))  # 文字列でも数値でも代入できるのでsetDataArray()を使って代入。
 def callback_sliphistoryCreator(xscriptcontext, selection):		
 	def callback_sliphistory(gridcelltxt):
-		tekiyo, jsondata = gridcelltxt.split(":", 1)
+		tekiyo, jsondata = gridcelltxt.split(":", 1)  # 摘要、と、科目金額辞書の文字列を取得する。
 		try:
-			kamokuvaldic = json.loads(jsondata) 
-		except json.JSONDecodeError as e:	
-			line = e.doc.split("\n")[e.lineno-1]
-			length = 16
-			p = e.pos
-			sp = 0 if p-length/2<0 else int(p-length/2)
-			ep = p+length-(p-sp)
-			fhalf = line[sp:p]
-			ehalf = line[p:ep]
-			commons.showErrorMessageBox(xscriptcontext.getDocument().getCurrentController(), "JSONで解読できない文字列です。\n{0}\n{1:>4}:{2:<4} {4}\n{2:>4}:{3:<4} {5}".format(e, sp, p, ep, fhalf, ehalf.rjust(len(fhalf)+len(ehalf))))	
+			kamokuvaldic = json.loads(jsondata)  # 科目金額辞書の文字列を辞書オブジェクトに復元する。
+		except json.JSONDecodeError as e:  # json構文にエラーがある時。
+			line = e.doc.split("\n")[e.lineno-1]  # エラーのある文字列の行を取得。
+			length = 40  # 表示する文字列の2行分の文字数。全角も半角も一文字となる。
+			c = length//2  # 表示中央までの文字数。
+			erp = e.pos   # エラー位置。
+			sp = None
+			ep = None
+			f = line[:erp]  # エラー位置前までの文字列。
+			s = line[erp:]  # エラー位置以降の文字列。
+			if len(line)>length:  # 元の文字列が表示文字列より長い時。
+				fc = len(f)  # エラー位置前までの文字列の長さを取得。
+				sc = len(s)  # エラー位置以降の文字列の長さを取得。
+				if fc<c:  # エラー位置までの文字列が表示中央までの文字数より短い時。
+					ep = erp + length - fc  # エラー位置以降の文字列の長さを伸ばして取得。
+				elif sc<c:  # エラー位置以降の文字列が表示中央までの文字数より短い時。
+					sp = erp - length + sc # エラー位置前までの文字列の長さを伸ばして取得。
+				else:  # どちらも中央までの文字列数が同じの時。
+					sp = erp - c
+					ep = erp+length-c
+				f = line[sp:erp]	
+				s = line[erp:ep] 	
+			msg = "JSONで解読できない文字列です。\n\n{0}\n\n[{1:>4}:{2:<4}] {4}\n\n[{2:>4}:{3:<4}] {5}".format(e, sp or "", erp or "", ep or "", f, s)
+			commons.showErrorMessageBox(xscriptcontext.getDocument().getCurrentController(), msg)	
 			return
-		kamokuvaldic = {tuple(k.split("/")): v for k, v in kamokuvaldic.items()}		
+		kamokuvaldic = {tuple(k.split("/")): v for k, v in kamokuvaldic.items()}  # 科目金額辞書のキーをタプルに変換して再取得。	
 		sheet = VARS.sheet
 		datarows = sheet[:VARS.kamokurow+2, :VARS.emptycolumn].getDataArray()
 		headerrows = generateHeaderRows(datarows)

@@ -213,14 +213,21 @@ class MouseListener(unohelper.Base, XMouseListener):
 		if mouseevent.Buttons==MouseButton.LEFT:
 			if mouseevent.ClickCount==1:  # シングルクリックでセルに入力する。
 				if self.flg:
+					closeflg = False  # ダイアログを閉じた時に立てるフラグ。		
 					doc = xscriptcontext.getDocument()
 					selection = doc.getCurrentSelection()  # シート上で選択しているオブジェクトを取得。
 					if selection.supportsService("com.sun.star.sheet.SheetCell"):  # 選択オブジェクトがセルの時。
+						sheet = selection.getSpreadsheet()
 						rowindexes = dialogcommons.getSelectedRowIndexes(gridcontrol)  # グリッドコントロールの選択行インデックスを返す。昇順で返す。負数のインデックスがある時は要素をクリアする。
 						if rowindexes:
+							for menuid in range(1, self.gridpopupmenu.getItemCount()+1):  # ポップアップメニューを走査する。
+								itemtext = self.gridpopupmenu.getItemText(menuid)  # 文字列にはショートカットキーがついてくる。
+								if itemtext.startswith("セル入力で閉じる"):
+									if self.gridpopupmenu.isItemChecked(menuid):  # 選択項目にチェックが入っている時。
+										self.dialogframe.close(True)  # 用が終わったらさっさと閉じないとその前にブレークや例外がでるとマウスが使えなくなる。
+										closeflg = True							
 							datetxt = gridcontrol.getModel().getPropertyValue("GridDataModel").getCellData(1, rowindexes[0])  # 選択行の日付文字列を取得。
 							if outputcolumn is not None:  # 出力する列が指定されている時。
-								sheet = selection.getSpreadsheet()
 								selection = sheet[selection.getCellAddress().Row, outputcolumn]  # 同じ行の指定された列のセルを取得。						
 							if formatstring is not None:  # 書式が与えられている時。
 								numberformats = doc.getNumberFormats()  # ドキュメントのフォーマット一覧を取得。デフォルトのフォーマット一覧はCalcの書式→セル→数値でみれる。
@@ -235,19 +242,11 @@ class MouseListener(unohelper.Base, XMouseListener):
 								try:
 									callback(datetxt)	
 								except:  # これをしないとエラーダイアログが出てこない。
-									exceptiondialog2.createDialog(xscriptcontext)  # XSCRIPTCONTEXTを渡す。		
-					for menuid in range(1, self.gridpopupmenu.getItemCount()+1):  # ポップアップメニューを走査する。
-						itemtext = self.gridpopupmenu.getItemText(menuid)  # 文字列にはショートカットキーがついてくる。
-						if itemtext.startswith("セル入力で閉じる"):
-							if self.gridpopupmenu.isItemChecked(menuid):  # 選択項目にチェックが入っている時。
-								self.dialogframe.close(True)
-							else:
-								controller = doc.getCurrentController()  # 現在のコントローラを取得。	
-								sheet = controller.getActiveSheet()
+									exceptiondialog2.createDialog(xscriptcontext)  # XSCRIPTCONTEXTを渡す。	
+							if not closeflg:  # ダイアログが閉じられていない時。
 								celladdress = selection.getCellAddress()
 								nextcell = sheet[celladdress.Row+1, celladdress.Column]  # 下のセルを取得。
-								controller.select(nextcell)  # 下のセルを選択。							
-							break
+								doc.getCurrentController().select(nextcell)  # 下のセルを選択。							
 				else:
 					self.flg = True		
 		elif mouseevent.Buttons==MouseButton.RIGHT:  # 右ボタンクリックの時。mouseevent.PopupTriggerではサブジェクトによってはTrueにならないので使わない。
