@@ -149,7 +149,7 @@ def mousePressed(enhancedmouseevent, xscriptcontext):  # マウスボタンを�
 					else:							
 						txt = selection.getString()	
 						if txt=="メニュー":
-							defaultrows = "仕訳日記帳生成", "総勘定元帳生成", "全補助元帳生成", "試算表・賃借対照表生成", "------", "次年度繰越"
+							defaultrows = "仕訳日記帳生成", "総勘定元帳生成", "全補助元帳生成", "決算書生成", "------", "次年度繰越"
 							menudialog.createDialog(xscriptcontext, txt, defaultrows, enhancedmouseevent=enhancedmouseevent, callback=callback_menuCreator(xscriptcontext))
 					return False  # セル編集モードにしない。
 				elif r>=VARS.splittedrow and c==VARS.daycolumn:  # 取引日列の時。
@@ -175,11 +175,11 @@ def callback_menuCreator(xscriptcontext):  # 内側のスコープでクロー�
 			if msgbox.execute()!=MessageBoxResults.YES:  # Yes以外の時はここで終わる。		
 				return	
 			createHojoMotoCho(xscriptcontext, gridcelltxt, "全補助元帳", lambda x: range(len(x[0])))	
-		elif gridcelltxt=="試算表・賃借対照表生成":
-			msgbox = querybox("{}します。".format(gridcelltxt))
+		elif gridcelltxt=="決算書生成":
+			msgbox = querybox("{}します。\n試算表、損益計算書、賃借対照表を生成します。".format(gridcelltxt))
 			if msgbox.execute()!=MessageBoxResults.YES:  # Yes以外の時はここで終わる。		
 				return	
-			createShisanhyo(xscriptcontext, gridcelltxt)
+			createFinancialStatements(xscriptcontext, gridcelltxt)
 		elif gridcelltxt=="次年度繰越":
 			startday, endday = [VARS.sheet[i, VARS.daycolumn].getString() for i in VARS.settlingdayrows]
 			settlingdaytxt = "期首日: {} 期末日: {}".format(startday, endday)
@@ -247,14 +247,14 @@ def kurikoshi(xscriptcontext, querybox, txt, startday, endday):
 		newheaderrowsgene = zip(*headerrows[1:])  # (区分行、科目行、補助科目行)をイテレートする。			
 	indicator.start("次期繰越金を取得", len(datarows[0]))		
 	columnstotaldic = {i[:-1]: i[-1] for i in zip(*headerrows[1:], datarows[VARS.splittedrow-1][VARS.splittedcolumn:]) if i[-1]}  # キー: (区分、科目、補助科目)のタプル、値: 各列計、の辞書を取得。各列0が0や空セルのものは取得しない。
-	newgannyu = sum(v for k, v in columnstotaldic.items() if (k[0] in ("経費", "収益")) or (k[1] in ("事業主貸", "事業主借", "元入金")))  # 事業主貸は正、事業主借は負、元入金は負、経費は正、収益は負、なのですべて合計すれば新元入金になる。
+	newmotoire = sum(v for k, v in columnstotaldic.items() if (k[0] in ("経費", "収益")) or (k[1] in ("事業主貸", "事業主借", "元入金")))  # 事業主貸は正、事業主借は負、元入金は負、経費は正、収益は負、なのですべて合計すれば新元入金になる。
 	carryovers = []  # 繰越行を取得するリスト。
 	t = 1
 	for i in newheaderrowsgene:  # 次期の(区分、科目、補助科目)をイテレート。
 		indicator.setValue(t)	
 		t += 1
 		if i[1]=="元入金":  # 科目が元入金の時。
-			val = newgannyu  # 新元入金を取得。				
+			val = newmotoire  # 新元入金を取得。				
 		elif i in columnstotaldic:  # 前期の(区分、科目、補助科目)が一致するものがあるとき。
 			if (i[0] in ("経費", "収益")) or (i[1] in ("事業主貸", "事業主借")):  # 区分が経費や収益の時、または、科目が事業主貸や事業主借の時。
 				val = ""  # 空セル。
@@ -268,7 +268,7 @@ def kurikoshi(xscriptcontext, querybox, txt, startday, endday):
 	newsheet[splittedrow, daycolumn:daycolumn+len(datarow)].setDataArray((datarow,))  # 繰越金行を代入。
 	indicator.end()  # reset()の前にend()しておかないと元に戻らない。
 	indicator.reset()  # ここでリセットしておかないと例外が発生した時にリセットする機会がない。	
-def createShisanhyo(xscriptcontext, txt):
+def createFinancialStatements(xscriptcontext, txt):  # 決算書作成。
 	doc = xscriptcontext.getDocument()	
 	settlingdaytxt, sectiontxt = getDaytxts()	
 	newdoc = xscriptcontext.getDesktop().loadComponentFromURL("private:factory/scalc", "_blank", 0, ())  # 新規ドキュメントの取得。	
@@ -278,62 +278,24 @@ def createShisanhyo(xscriptcontext, txt):
 	if not headerrows:
 		commons.showErrorMessageBox(doc.getCurrentController(), "シートのデータが取得できません。\n処理を中止します。")	
 		return		
-	
-	
-	dummy, sdaytxt, dummy, edaytxt = settlingdaytxt.split(" ")
-	barancesheetrows = [("賃借対照表", "", "", "", "", ""),\
-						("", "", "", "", "", "({}現在)".format(date.today().isoformat())),\
-						("資産の部", "", "", "負債・資本の部", "", ""),\
-						("科目", "{}(期首)".format(sdaytxt), "{}(期末)".format(edaytxt))*2]
-	balancesheetkarikata = []  # 賃借対照表の借方の(科目, 期首金額, 期末金額)のタプルを入れるリスト。
-	balancesheetkashikata = []  # 賃借対照表の貸方の(科目, 期首金額, 期末金額)のタプルを入れるリスト。
-	shotoku = 0
-	jigyonushikashirow = "事業主貸", 0, 0
-	jigyonushikarirow = "事業主借", 0, 0
-	gannyurow = "元入金", 0, 0
-	
-	
-	newdatarows = [("試算表", "", "", "", "", "", ""),\
-				(settlingdaytxt, "", "", "", "", "", ""),\
-				("勘定科目", "期首残高", "", "期中取引", "", "期末残高", ""),\
-				("", "借方", "貸方", "借方", "貸方", "借方", "貸方")]  # 新規シートのヘッダー行。		
-	bkarikata = []
-	bkashikata = []
-	karikata = []
-	kashikata = []
-	ekarikata = []
-	ekashikata = []
+	addToTrialB, createTrialBalance = createTrialBalanceCreator(xscriptcontext, settlingdaytxt)	 # 試算表作成のための関数を取得。
+	addToBS, createBalanceSheet = createBalanceSheetCreator(xscriptcontext, settlingdaytxt)	 # 賃借対照表作成のための関数を取得。
+	bkarikata = []  # 各科目の期首借方金額を入れるリスト。
+	bkashikata = []  # 各科目の期首貸方金額を入れるリスト。
+	karikata = []  # 各科目の期中借方金額を入れるリスト。
+	kashikata = []  # 各科目の期中貸方金額を入れるリスト。
+	ekarikata = []  # 各科目の期末借方金額を入れるリスト。
+	ekashikata = []  # 各科目の期末貸方金額を入れるリスト。
 	kamoku = ""  # 科目のキャッシュ。
 	kubun = ""  # 区分のキャッシュ。賃借対照表作成用。
-	flg = True if "繰越" in datarows[VARS.splittedrow][VARS.daycolumn+1] else False  # 繰越フラグ。
-	
-	
+	flg = True if "繰越" in datarows[VARS.splittedrow][VARS.daycolumn+1] else False  # 繰越フラグ。繰越行がないときは期首データはないということ。
 	for i in zip(*headerrows, *[i[VARS.splittedcolumn:] for i in datarows[VARS.splittedrow-1:]]):  # 列インデックス、区分、科目、補助科目、列合計、固定列以下の列の要素、をイテレート。
 		indicator.setValue(i[0])
 		if kamoku!=i[2]:  # 科目が切り替わった時。
 			sums = list(map(sum, (bkarikata, bkashikata, karikata, kashikata, ekarikata, ekashikata)))  # 各リストの合計のリストを取得。
 			if sum(sums):  # 0でない要素がある時のみ。
-				newdatarows.append((kamoku, *sums))
-				
-				
-				if kubun.startswith("資産"):
-					if kamoku=="事業主貸":
-						jigyonushikashirow = kamoku, 0, sums[4]
-					else:
-						balancesheetkarikata.append((kamoku, sums[0], sums[4])) # 賃借対照表の借方の(科目, 期首金額, 期末金額)を取得。
-				elif kubun.startswith("負債"):
-					if kamoku=="事業主借":
-						jigyonushikarirow = kamoku, 0, sums[5]
-					elif kamoku=="元入金":
-						gannyurow = kamoku, sums[0], sums[4]  # 賃借対照表の元入金の期首と期末の額は同一。
-					else:
-						balancesheetkashikata.append((kamoku, sums[1], sums[5]))  # 賃借対照表の貸方の(科目, 期首金額, 期末金額)を取得。
-				elif kubun=="経費":
-					shotoku -= sums[4]
-				elif kubun=="収益":
-					shotoku += sums[5]
-					
-					
+				addToTrialB(kamoku, sums)  # 決算書データに追加。
+				addToBS(kubun, kamoku, sums)  # 賃借対照表データに追加。
 			bkarikata = []
 			bkashikata = []
 			karikata = []
@@ -351,8 +313,8 @@ def createShisanhyo(xscriptcontext, txt):
 			else:  # 貸方科目の時。
 				bkarikata.append(0)
 				bkashikata.append((i[startrow] or 0)*sign)								
-			startrow += 1
-		else:  # 繰越行がない時。
+			startrow += 1  # 繰越行より下のみ加算するようにする。
+		else:  # 繰越行がない時。期首データはなし。
 			bkarikata.append(0)
 			bkashikata.append(0)	
 		karikata.append(sum(filter(lambda x: x and x>0, i[startrow:])))  # 列の借方合計を取得。空文字を除く。
@@ -363,93 +325,128 @@ def createShisanhyo(xscriptcontext, txt):
 		else:  # 貸方科目の時。	
 			ekarikata.append(0)
 			ekashikata.append((i[4] or 0)*sign)
-	
 	width, leftmargin, rightmargin = newdoc.getStyleFamilies()["PageStyles"]["Default"].getPropertyValues(("Width", "LeftMargin", "RightMargin"))
-	pagewidth = width - leftmargin - rightmargin - 5  # 印刷幅を1/100mmで取得。なぜかはみ出るのでマージンを取る。				
-	newkingakuwidth = 2000  # 科目金額列幅。		
-			
-	newdatarows.append(("合計", *list(map(sum, islice(zip(*newdatarows[4:]), 1, None))),))  # 各列合計を取得。
-	indicator.setText("Formatting")		
-	newsheets = newdoc.getSheets()
-	newsheet = newsheets[0]
-	newsheet.setName("試算表")
-	rowscount = len(newdatarows)
-	columnscount = len(newdatarows[0])
-	newsheet[:rowscount, :columnscount].setDataArray(newdatarows)
-	horizontalmerges = 1, 3, 5  # 右隣のセルと結合するヘッダ行の列インデックス。	
-	newsheet[0, :columnscount].merge(True)  # 題名セルの結合。	
-	rangeaddresses = [newsheet[0, 0].getRangeAddress()]  # 中央揃えするセルのセルアドレスを入れるリストに題名セルを入れる。					。
-	newsheet[2:4, 0].merge(True)  # 科目ヘッダーの結合。	
-	newsheet[2, 0].setPropertyValue("VertJustify", CellVertJustify2.CENTER)  # 科目ヘッダーセルの縦中央揃え。
-	[newsheet[2, i:i+2].merge(True) for i in horizontalmerges]  # 金額ヘッダーの結合。
-	for i in horizontalmerges:  # 金額ヘッダーセルインデックスをイテレート。
-		newsheet[2:4, i].merge(True)
-		rangeaddresses.append(newsheet[2, i].getRangeAddress())
-	setCellRangeProperty(newdoc, rangeaddresses, lambda x: x.setPropertyValue("HoriJustify", CENTER))
-	datarange = newsheet[4:rowscount, 1:columnscount]		
-	searchdescriptor = newsheet.createSearchDescriptor()
-	searchdescriptor.setSearchString(0)  # 0のセルを取得。戻り値はない。	
-	cellranges = datarange.queryContentCells(CellFlags.VALUE).findAll(searchdescriptor)  # 値のあるセルから0以外が入っているセル範囲コレクションを取得。見つからなかった時はNoneが返る。
-	if cellranges:
-		cellranges.clearContents(CellFlags.VALUE)  # 0のセルを空セルにする。
-	datarange.setPropertyValue("NumberFormat", commons.formatkeyCreator(newdoc)("#,##0;[BLUE]-#,##0"))	
-	newcontroller = newdoc.getCurrentController()	
-	frame = newcontroller.getFrame()
-	selection = newdoc.getCurrentSelection()
-	newcontroller.select(newsheet[2:rowscount, :columnscount])		
-	drawTableBorders(xscriptcontext, frame)	
-	newcontroller.select(selection)	
-	
-	
-	newsheet[0, 1:columnscount].getColumns().setPropertyValue("Width", newkingakuwidth)  # 金額列の列幅を設定。
-	newsheet.getColumns()[0].setPropertyValue("Width", pagewidth-newkingakuwidth*(columnscount-1))  # 科目列幅を設定。残った幅をすべて割り当てる。	
-	barancesheetrows.extend(chain.from_iterable(zip_longest(balancesheetkarikata, balancesheetkashikata, fillvalue=("", 0, 0))))  # (借方科目, 期首金額, 期末金額, 貸方科目, 期首金額, 期末金額)をイテレート。
-	barancesheetrows.extend((("", 0, 0, *jigyonushikarirow),\
-							("", 0, 0, *gannyurow),\
-							(*jigyonushikashirow, "所得金額", 0, shotoku)))
-	
-	import pydevd; pydevd.settrace(stdoutToServer=True, stderrToServer=True)
-	
-	# [list(j) for j in (chain(*i) for i in zip_longest(balancesheetkarikata, balancesheetkashikata, fillvalue=("", 0, 0)))]
-	
-	barancesheetrows.append(("合計", *list(map(sum, islice(zip(*barancesheetrows[4:]), 1, 3))), "合計", *list(map(sum, islice(zip(*barancesheetrows[4:]), 4, 6)))))
-	newbalancesheetname = "賃借対照表"
-	newsheets.insertNewByName(newbalancesheetname, len(newsheets))
-	newbalancesheet = newsheets[newbalancesheetname]
-	rowscount = len(barancesheetrows)
-	columnscount = len(barancesheetrows[0])
-	newbalancesheet[:rowscount, :columnscount].setDataArray(barancesheetrows)	
-	newbalancesheet[0, :columnscount].merge(True)  # 題名セルの結合。	
-	newbalancesheet[2, :3].merge(True)
-	newbalancesheet[2, 3:6].merge(True)
-	cells = newbalancesheet[0, 0], newbalancesheet[2, 0], newbalancesheet[2, 3]
-	setCellRangeProperty(newdoc, (i.getRangeAddress() for i in cells), lambda x: x.setPropertyValue("HoriJustify", CENTER))
-	cells = newbalancesheet[1, columnscount-1], newbalancesheet[3, 1:3], newbalancesheet[3, 4:6]
-	setCellRangeProperty(newdoc, (i.getRangeAddress() for i in cells), lambda x: x.setPropertyValue("HoriJustify", RIGHT))
-	selection = newdoc.getCurrentSelection()
-	newcontroller.select(newbalancesheet[2:rowscount, :columnscount])		
-	drawTableBorders(xscriptcontext, frame)		
-	newcontroller.select(selection)	
-	newbalancesheet[0, 1:3].getColumns().setPropertyValue("Width", newkingakuwidth)  # 金額列の列幅を設定。
-	newbalancesheet[0, 4:6].getColumns().setPropertyValue("Width", newkingakuwidth)  # 金額列の列幅を設定。
-	kamokuwidth = (pagewidth-newkingakuwidth*4)//2
-	newbalancesheet[0, 0].getColumns().setPropertyValue("Width", kamokuwidth)
-	newbalancesheet[0, 3].getColumns().setPropertyValue("Width", kamokuwidth)
-	searchdescriptor = newbalancesheet.createSearchDescriptor()
-	searchdescriptor.setSearchString(0)  # 0のセルを取得。戻り値はない。	
-	
-	for i in (newbalancesheet[4:rowscount, 1:3], newbalancesheet[4:rowscount, 4:6]):
-		cellranges = i.queryContentCells(CellFlags.VALUE).findAll(searchdescriptor)  # 値のあるセルから0以外が入っているセル範囲コレクションを取得。見つからなかった時はNoneが返る。
-		if cellranges:
-			cellranges.clearContents(CellFlags.VALUE)  # 0のセルを空セルにする。	
-		i.setPropertyValue("NumberFormat", commons.formatkeyCreator(newdoc)("#,##0;[BLUE]-#,##0"))	
-	
-	
-	newdocname = "試算表賃借対照表_{}_{}.ods".format(sectiontxt, datetime.now().strftime("%Y%m%d%H%M%S"))
+	pagewidth = width - leftmargin - rightmargin - 5  # 印刷幅を1/100mmで取得。なぜかはみ出るのでマージンを取る。	
+	createTrialBalance(newdoc, pagewidth)  # 試算表シートの作成。
+	createBalanceSheet(newdoc, pagewidth)  # 賃借対照表シートの作成。
+	newdocname = "決算書_{}_{}.ods".format(sectiontxt, datetime.now().strftime("%Y%m%d%H%M%S"))
 	indicator.setText("Saving {}".format(newdocname))	
 	saveNewDoc(doc, newdoc, newdocname)	
 	indicator.end()  # reset()の前にend()しておかないと元に戻らない。
 	indicator.reset()  # ここでリセットしておかないと例外が発生した時にリセットする機会がない。	
+def createTrialBalanceCreator(xscriptcontext, settlingdaytxt):
+	newdatarows = [("試算表", "", "", "", "", "", ""),\
+				(settlingdaytxt, "", "", "", "", "", ""),\
+				("勘定科目", "期首残高", "", "期中取引", "", "期末残高", ""),\
+				("", "借方", "貸方", "借方", "貸方", "借方", "貸方")]  # 新規シートのヘッダー行。	
+	def addToTrialB(kamoku, sums):
+		newdatarows.append((kamoku, *sums))
+	def createTrialBalance(newdoc, pagewidth):
+		newkingakuwidth = 2000  # 科目金額列幅。	
+		newdatarows.append(("合計", *list(map(sum, islice(zip(*newdatarows[4:]), 1, None))),))  # 各列合計を取得。	
+		newsheets = newdoc.getSheets()
+		newsheet = newsheets[0]
+		newsheet.setName("試算表")
+		rowscount = len(newdatarows)
+		columnscount = len(newdatarows[0])
+		newsheet[:rowscount, :columnscount].setDataArray(newdatarows)
+		horizontalmerges = 1, 3, 5  # 右隣のセルと結合するヘッダ行の列インデックス。	
+		newsheet[0, :columnscount].merge(True)  # 題名セルの結合。	
+		rangeaddresses = [newsheet[0, 0].getRangeAddress()]  # 中央揃えするセルのセルアドレスを入れるリストに題名セルを入れる。					。
+		newsheet[2:4, 0].merge(True)  # 科目ヘッダーの結合。	
+		newsheet[2, 0].setPropertyValue("VertJustify", CellVertJustify2.CENTER)  # 科目ヘッダーセルの縦中央揃え。
+		[newsheet[2, i:i+2].merge(True) for i in horizontalmerges]  # 金額ヘッダーの結合。
+		for i in horizontalmerges:  # 金額ヘッダーセルインデックスをイテレート。
+			newsheet[2:4, i].merge(True)
+			rangeaddresses.append(newsheet[2, i].getRangeAddress())
+		setCellRangeProperty(newdoc, rangeaddresses, lambda x: x.setPropertyValue("HoriJustify", CENTER))
+		datarange = newsheet[4:rowscount, 1:columnscount]		
+		searchdescriptor = newsheet.createSearchDescriptor()
+		searchdescriptor.setSearchString(0)  # 0のセルを取得。戻り値はない。	
+		cellranges = datarange.queryContentCells(CellFlags.VALUE).findAll(searchdescriptor)  # 値のあるセルから0以外が入っているセル範囲コレクションを取得。見つからなかった時はNoneが返る。
+		if cellranges:
+			cellranges.clearContents(CellFlags.VALUE)  # 0のセルを空セルにする。
+		datarange.setPropertyValue("NumberFormat", commons.formatkeyCreator(newdoc)("#,##0;[BLUE]-#,##0"))	
+		newcontroller = newdoc.getCurrentController()	
+		frame = newcontroller.getFrame()
+		selection = newdoc.getCurrentSelection()
+		newcontroller.select(newsheet[2:rowscount, :columnscount])		
+		drawTableBorders(xscriptcontext, frame)	
+		newcontroller.select(selection)	
+		newsheet[0, 1:columnscount].getColumns().setPropertyValue("Width", newkingakuwidth)  # 金額列の列幅を設定。
+		newsheet.getColumns()[0].setPropertyValue("Width", pagewidth-newkingakuwidth*(columnscount-1))  # 科目列幅を設定。残った幅をすべて割り当てる。	
+	return addToTrialB, createTrialBalance
+def createBalanceSheetCreator(xscriptcontext, settlingdaytxt):
+	dummy, sdaytxt, dummy, edaytxt = settlingdaytxt.split(" ")
+	barancesheetrows = [("賃借対照表", "", "", "", "", ""),\
+						(settlingdaytxt, "", "", "", "", "({}現在)".format(date.today().isoformat())),\
+						("資産の部", "", "", "負債・資本の部", "", ""),\
+						("科目", "{}月{}日(期首)".format(*[i.lstrip("0") for i in sdaytxt.split("-")[1:]]), "{}月{}日(期末)".format(*[i.lstrip("0") for i in edaytxt.split("-")[1:]]))*2]
+	balancesheetkarikata = []  # 賃借対照表の借方の(科目, 期首金額, 期末金額)のタプルを入れるリスト。
+	balancesheetkashikata = []  # 賃借対照表の貸方の(科目, 期首金額, 期末金額)のタプルを入れるリスト。
+	shotoku = 0
+	jigyonushikashirow = "事業主貸", 0, 0
+	jigyonushikarirow = "事業主借", 0, 0
+	motoirerow = "元入金", 0, 0
+	def addToBS(kubun, kamoku, sums):
+		nonlocal shotoku, jigyonushikashirow, jigyonushikarirow, motoirerow
+		if kubun.startswith("資産"):
+			if kamoku=="事業主貸":
+				jigyonushikashirow = kamoku, 0, sums[4]
+			else:
+				balancesheetkarikata.append((kamoku, sums[0], sums[4])) # 賃借対照表の借方の(科目, 期首金額, 期末金額)を取得。
+		elif kubun.startswith("負債"):
+			if kamoku=="事業主借":
+				jigyonushikarirow = kamoku, 0, sums[5]
+			elif kamoku=="元入金":
+				motoirerow = kamoku, sums[0], sums[4]  # 賃借対照表の元入金の期首と期末の額は同一。
+			else:
+				balancesheetkashikata.append((kamoku, sums[1], sums[5]))  # 賃借対照表の貸方の(科目, 期首金額, 期末金額)を取得。
+		elif kubun=="経費":
+			shotoku -= sums[4]
+		elif kubun=="収益":
+			shotoku += sums[5]	
+	def createBalanceSheet(newdoc, pagewidth):	
+		newkingakuwidth = 2700
+		newcontroller = newdoc.getCurrentController()		
+		newsheets = newdoc.getSheets()
+		barancesheetrows.extend(i[0]+i[1] for i in zip_longest(balancesheetkarikata, balancesheetkashikata, fillvalue=("", 0, 0)))  # (借方科目, 期首金額, 期末金額, 貸方科目, 期首金額, 期末金額)をイテレート。chainやchain.from_iterableだとイテレーターのリストが返るのでさらに展開しないといけない。
+		barancesheetrows.extend((("", 0, 0, *jigyonushikarirow),\
+								("", 0, 0, *motoirerow),\
+								(*jigyonushikashirow, "所得金額", 0, shotoku)))
+		barancesheetrows.append(("合計", *list(map(sum, islice(zip(*barancesheetrows[4:]), 1, 3))), "合計", *list(map(sum, islice(zip(*barancesheetrows[4:]), 4, 6)))))
+		newsheetname = "賃借対照表"
+		newsheets.insertNewByName(newsheetname, len(newsheets))
+		newsheet = newsheets[newsheetname]
+		rowscount = len(barancesheetrows)
+		columnscount = len(barancesheetrows[0])
+		newsheet[:rowscount, :columnscount].setDataArray(barancesheetrows)	
+		newsheet[0, :columnscount].merge(True)  # 題名セルの結合。	
+		newsheet[2, :3].merge(True)
+		newsheet[2, 3:6].merge(True)
+		cells = newsheet[0, 0], newsheet[2, 0], newsheet[2, 3]
+		setCellRangeProperty(newdoc, (i.getRangeAddress() for i in cells), lambda x: x.setPropertyValue("HoriJustify", CENTER))
+		cells = newsheet[1, columnscount-1], newsheet[3, 1:3], newsheet[3, 4:6]
+		setCellRangeProperty(newdoc, (i.getRangeAddress() for i in cells), lambda x: x.setPropertyValue("HoriJustify", RIGHT))
+		selection = newdoc.getCurrentSelection()
+		newcontroller.select(newsheet[2:rowscount, :columnscount])		
+		drawTableBorders(xscriptcontext, newcontroller.getFrame())		
+		newcontroller.select(selection)	
+		newsheet[0, 1:3].getColumns().setPropertyValue("Width", newkingakuwidth)  # 金額列の列幅を設定。
+		newsheet[0, 4:6].getColumns().setPropertyValue("Width", newkingakuwidth)  # 金額列の列幅を設定。
+		kamokuwidth = (pagewidth-newkingakuwidth*4)//2
+		newsheet[0, 0].getColumns().setPropertyValue("Width", kamokuwidth)
+		newsheet[0, 3].getColumns().setPropertyValue("Width", kamokuwidth)
+		searchdescriptor = newsheet.createSearchDescriptor()
+		searchdescriptor.setSearchString(0)  # 0のセルを取得。戻り値はない。	
+		for i in (newsheet[4:rowscount-1, 1:3], newsheet[4:rowscount-4, 4:6]):
+			cellranges = i.queryContentCells(CellFlags.VALUE).findAll(searchdescriptor)  # 値のあるセルから0以外が入っているセル範囲コレクションを取得。見つからなかった時はNoneが返る。
+			if cellranges:
+				cellranges.clearContents(CellFlags.VALUE)  # 0のセルを空セルにする。	
+			i.setPropertyValue("NumberFormat", commons.formatkeyCreator(newdoc)("#,##0;[BLUE]-#,##0"))	
+		cells = newsheet[rowscount-2, 1], newsheet[rowscount-4, 4], newsheet[rowscount-2, 4]
+		setCellRangeProperty(newdoc, (i.getRangeAddress() for i in cells), lambda x: x.setPropertyValues(("CellBackColor", "CharColor"), [commons.COLORS["black"]]*2))
+	return addToBS, createBalanceSheet
 def createShiwakeCho(xscriptcontext, txt):
 	doc = xscriptcontext.getDocument()	
 	settlingdaytxt, sectiontxt = getDaytxts()
