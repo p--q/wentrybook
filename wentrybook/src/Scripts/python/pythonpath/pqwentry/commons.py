@@ -12,6 +12,7 @@ COLORS = {\
 		"magenta3": 0xFF00FF,\
 		"black": 0x000000,\
 		"silver": 0xC0C0C0,\
+		"white": 0xFFFFFF,\
 		"violet": 0x9999FF}  # 色の16進数。	
 def getModule(sheetname):  # シート名に応じてモジュールを振り分ける関数。
 	if sheetname is None:  # シート名でNoneが返ってきた時はドキュメントイベントとする。
@@ -38,8 +39,7 @@ def createBorders():# 枠線の作成。
 	return noneline, tableborder2, topbottomtableborder, leftrighttableborder  # 作成した枠線をまとめたタプル。
 def showErrorMessageBox(controller, msg):
 	componentwindow = controller.ComponentWindow
-	msgbox = componentwindow.getToolkit().createMessageBox(componentwindow, ERRORBOX, MessageBoxButtons.BUTTONS_OK, "WEntryBook", msg)
-	msgbox.execute()	
+	componentwindow.getToolkit().createMessageBox(componentwindow, ERRORBOX, MessageBoxButtons.BUTTONS_OK, "WEntryBook", msg).execute()	
 def contextmenuHelper(sheetvars, contextmenuexecuteevent, xscriptcontext):	
 	controller = contextmenuexecuteevent.Selection  # コントローラーは逐一取得しないとgetSelection()が反映されない。。
 	contextmenu = contextmenuexecuteevent.ActionTriggerContainer  # コンテクストメニューコンテナの取得。

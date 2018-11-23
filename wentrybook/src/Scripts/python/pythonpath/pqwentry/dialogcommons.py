@@ -2,8 +2,9 @@
 # -*- coding: utf-8 -*-
 import unohelper, json
 from com.sun.star.awt import XMouseMotionListener
-from com.sun.star.awt import PosSize  # 定数
+from com.sun.star.awt import MessageBoxButtons, PosSize  # 定数
 from com.sun.star.awt import Point  # Struct
+from com.sun.star.awt.MessageBoxType import ERRORBOX  # enum
 from com.sun.star.datatransfer import XTransferable
 from com.sun.star.datatransfer import DataFlavor  # Struct
 from com.sun.star.datatransfer import UnsupportedFlavorException  # 例外
@@ -41,9 +42,33 @@ def getSavedData(doc, rangename):  # configシートのragenameからデータ�
 			if txt:
 				try:
 					return json.loads(txt)  # pyunoオブジェクトは変換できない。
-				except json.JSONDecodeError:
-					import traceback; traceback.print_exc()  # これがないとPyDevのコンソールにトレースバックが表示されない。stderrToServer=Trueが必須。		
+				except json.JSONDecodeError as e:
+					showJSONError(doc, e)
 	return None  # 保存された行が取得できない時はNoneを返す。
+def showJSONError(doc, e):
+	line = e.doc.split("\n")[e.lineno-1]  # エラーのある文字列の行を取得。
+	length = 40  # 表示する文字列の2行分の文字数。全角も半角も一文字となる。
+	c = length//2  # 表示中央までの文字数。
+	erp = e.pos   # エラー位置。
+	sp = None
+	ep = None
+	f = line[:erp]  # エラー位置前までの文字列。
+	s = line[erp:]  # エラー位置以降の文字列。
+	if len(line)>length:  # 元の文字列が表示文字列より長い時。
+		fc = len(f)  # エラー位置前までの文字列の長さを取得。
+		sc = len(s)  # エラー位置以降の文字列の長さを取得。
+		if fc<c:  # エラー位置までの文字列が表示中央までの文字数より短い時。
+			ep = erp + length - fc  # エラー位置以降の文字列の長さを伸ばして取得。
+		elif sc<c:  # エラー位置以降の文字列が表示中央までの文字数より短い時。
+			sp = erp - length + sc # エラー位置前までの文字列の長さを伸ばして取得。
+		else:  # どちらも中央までの文字列数が同じの時。
+			sp = erp - c
+			ep = erp+length-c
+		f = line[sp:erp]	
+		s = line[erp:ep] 	
+	msg = "JSONで解読できない文字列です。\n\n{0}\n\n[{1:>4}:{2:<4}] {4}\n\n[{2:>4}:{3:<4}] {5}".format(e, sp or "", erp or "", ep or "", f, s)
+	componentwindow = doc.getCurrentController().ComponentWindow
+	componentwindow.getToolkit().createMessageBox(componentwindow, ERRORBOX, MessageBoxButtons.BUTTONS_OK, "dialogcommons.py", msg).execute()		
 def getSelectedRowIndexes(gridcontrol):  # グリッドコントロールの選択行インデックスを返す。昇順で返す。負数のインデックスがある時は要素をクリアする。
 	selectedrowindexes = list(gridcontrol.getSelectedRows())  # 選択行のインデックスをリストで取得。
 	selectedrowindexes.sort()  # 選択順にインデックスが入っているので昇順にソートする。
