@@ -290,6 +290,7 @@ def createFinancialStatements(xscriptcontext, txt):  # 決算書作成。
 		commons.showErrorMessageBox(doc.getCurrentController(), "シートのデータが取得できません。\n処理を中止します。")	
 		return		
 	addToTrialB, createTrialBalance = createTrialBalanceCreator(xscriptcontext, settlingdaytxt)	 # 試算表作成のための関数を取得。
+	addPL, createPL = createProfitAndLossCreator(xscriptcontext, settlingdaytxt)	 # 損益計算書作成のための関数を取得。
 	addToBS, createBalanceSheet = createBalanceSheetCreator(xscriptcontext, settlingdaytxt)	 # 賃借対照表作成のための関数を取得。
 	bkarikata = []  # 各科目の期首借方金額を入れるリスト。
 	bkashikata = []  # 各科目の期首貸方金額を入れるリスト。
@@ -305,7 +306,8 @@ def createFinancialStatements(xscriptcontext, txt):  # 決算書作成。
 		if kamoku!=i[2]:  # 科目が切り替わった時。
 			sums = list(map(sum, (bkarikata, bkashikata, karikata, kashikata, ekarikata, ekashikata)))  # 各リストの合計のリストを取得。
 			if sum(sums):  # 0でない要素がある時のみ。
-				addToTrialB(kamoku, sums)  # 決算書データに追加。
+				addToTrialB(kamoku, sums)  # 試算表データに追加。
+				addPL(kubun, kamoku, sums)  # 損益計算書データを追加。			
 				addToBS(kubun, kamoku, sums)  # 賃借対照表データに追加。
 			bkarikata = []
 			bkashikata = []
@@ -339,13 +341,80 @@ def createFinancialStatements(xscriptcontext, txt):  # 決算書作成。
 	width, leftmargin, rightmargin = newdoc.getStyleFamilies()["PageStyles"]["Default"].getPropertyValues(("Width", "LeftMargin", "RightMargin"))
 	pagewidth = width - leftmargin - rightmargin - 5  # 印刷幅を1/100mmで取得。なぜかはみ出るのでマージンを取る。	
 	createTrialBalance(newdoc, pagewidth)  # 試算表シートの作成。
+	createPL(newdoc, pagewidth)  # 損益計算書シートの作成。
 	createBalanceSheet(newdoc, pagewidth)  # 賃借対照表シートの作成。
 	newdocname = "決算書_{}_{}.ods".format(sectiontxt, datetime.now().strftime("%Y%m%d%H%M%S"))
 	indicator.setText("Saving {}".format(newdocname))	
 	saveNewDoc(doc, newdoc, newdocname)	
 	indicator.end()  # reset()の前にend()しておかないと元に戻らない。
 	indicator.reset()  # ここでリセットしておかないと例外が発生した時にリセットする機会がない。	
-def createTrialBalanceCreator(xscriptcontext, settlingdaytxt):
+def createProfitAndLossCreator(xscriptcontext, settlingdaytxt):	# 損益通算書の作成。
+	expensesdatarows = []  # 経費のデータ行を取得するリスト。
+	kamokuvaluedic = {}  # キー: 科目、値: 金額、の辞書。
+	def addPL(kubun, kamoku, sums):
+		if kubun=="経費":  # 借方科目。
+			if kamoku in ("専従者給与", "貸倒引当金繰入", "期首商品棚卸高", "仕入金額"):
+				kamokuvaluedic[kamoku] = sums[5]
+			else:  # その他の経費。
+				expensesdatarows.append(("経費", kamoku, "", sums[5]))
+		elif kubun=="収益":  # 貸方科目。"売上金額", "貸倒引当金戻入", "期末商品棚卸高"。これ以外の収益は想定していない。
+			kamokuvaluedic[kamoku] = sums[4]
+	def createPL(newdoc, pagewidth):
+		newsheets = newdoc.getSheets()
+		newsheetname = "損益計算書"		
+		newsheets.insertNewByName(newsheetname, len(newsheets))
+		newsheet = newsheets[newsheetname]			
+		newdatarows = [("損益計算書", "", "", ""),\
+					(settlingdaytxt, "", "", ""),\
+					("科目", "", "", "金額")]  # 新規シートのヘッダー行。
+		newdatarows.append(("売上(収入)金額", "", "", kamokuvaluedic.get("売上金額", 0)))			
+		newdatarows.append(("売上原価", "期首商品棚卸高", "", kamokuvaluedic.get("期首商品棚卸高", 0)))
+		newdatarows.append(("", "仕入金額", "", kamokuvaluedic.get("仕入金額", 0)))
+		newdatarows.append(("", "小計", "", newdatarows[-2][-1]+newdatarows[-1][-1]))
+		newdatarows.append(("", "期末商品棚卸高", "", kamokuvaluedic.get("期末商品棚卸高", 0)))
+		newdatarows.append(("", "差引原価", "", newdatarows[-2][-1]-newdatarows[-1][-1]))
+		grossprofit = newdatarows[3][-1] - newdatarows[-1][-1]
+		newdatarows.append(("差引金額", "", "", grossprofit))
+		newdatarows.extend(expensesdatarows)
+		expensestotal = sum(i[-1] for i in expensesdatarows)
+		newdatarows.append(("", "計", "", expensestotal))
+		profit = grossprofit - expensestotal
+		newdatarows.append(("差引金額", "", "", profit))
+		newdatarows.append(("各種引当金・準備金等", "繰戻額等", "貸倒引当金", kamokuvaluedic.get("貸倒引当金戻入", 0)))
+		fb = newdatarows[-1][-1]
+		newdatarows.append(("", "", "計", fb))
+		newdatarows.append(("", "繰入額等", "専従者給与", kamokuvaluedic.get("専従者給与", 0)))
+		newdatarows.append(("", "", "貸倒引当金", kamokuvaluedic.get("貸倒引当金繰入", 0)))
+		pb = newdatarows[-2][-1] + newdatarows[-1][-1]
+		newdatarows.append(("", "", "計", pb))
+		newdatarows.append(("青色申告特別控除前の所得金額", "", "", profit+fb-pb))
+		columnscount = len(newdatarows[0])
+		newsheet[0, :columnscount].merge(True)  # 題名セルの結合。	
+		expensesendrow = len(expensesdatarows) + 11
+		for i in (2, 3, 9, expensesendrow, expensesendrow+6):
+			newsheet[i, :3].merge(True)		
+		for i in chain(range(4, 9), range(10, expensesendrow)):
+			newsheet[i, 1:3].merge(True)
+		newsheet[4:9, 0].merge(True)	
+		newsheet[10:expensesendrow, 0].merge(True)
+		newsheet[expensesendrow+1:expensesendrow+6, 0].merge(True)				
+		newsheet[expensesendrow+1:expensesendrow+3, 1].merge(True)		
+		newsheet[expensesendrow+3:expensesendrow+6, 1].merge(True)			
+		rowscount = len(newdatarows)
+		newsheet[:rowscount, :columnscount].setDataArray(newdatarows)	
+		newcontroller = newdoc.getCurrentController()
+		selection = newdoc.getCurrentSelection()
+		newcontroller.select(newsheet[2:rowscount, :columnscount])		
+		drawTableBorders(xscriptcontext, newcontroller.getFrame())		
+		newcontroller.select(selection)			
+		newsheet[:rowscount, 3].setPropertyValue("NumberFormat", commons.formatkeyCreator(newdoc)("#,##0;[BLUE]-#,##0"))	
+	
+	
+	
+	
+	
+	return addPL, createPL
+def createTrialBalanceCreator(xscriptcontext, settlingdaytxt):  # 試算表の作成。
 	newdatarows = [("試算表", "", "", "", "", "", ""),\
 				(settlingdaytxt, "", "", "", "", "", ""),\
 				("勘定科目", "期首残高", "", "期中取引", "", "期末残高", ""),\
@@ -379,15 +448,14 @@ def createTrialBalanceCreator(xscriptcontext, settlingdaytxt):
 			cellranges.clearContents(CellFlags.VALUE)  # 0のセルを空セルにする。
 		datarange.setPropertyValue("NumberFormat", commons.formatkeyCreator(newdoc)("#,##0;[BLUE]-#,##0"))	
 		newcontroller = newdoc.getCurrentController()	
-		frame = newcontroller.getFrame()
 		selection = newdoc.getCurrentSelection()
 		newcontroller.select(newsheet[2:rowscount, :columnscount])		
-		drawTableBorders(xscriptcontext, frame)	
+		drawTableBorders(xscriptcontext, newcontroller.getFrame())	
 		newcontroller.select(selection)	
 		newsheet[0, 1:columnscount].getColumns().setPropertyValue("Width", newkingakuwidth)  # 金額列の列幅を設定。
 		newsheet.getColumns()[0].setPropertyValue("Width", pagewidth-newkingakuwidth*(columnscount-1))  # 科目列幅を設定。残った幅をすべて割り当てる。	
 	return addToTrialB, createTrialBalance
-def createBalanceSheetCreator(xscriptcontext, settlingdaytxt):
+def createBalanceSheetCreator(xscriptcontext, settlingdaytxt):  # 損益計算書の作成。
 	dummy, sdaytxt, dummy, edaytxt = settlingdaytxt.split(" ")
 	barancesheetrows = [("賃借対照表", "", "", "", "", ""),\
 						(settlingdaytxt, "", "", "", "", "({}現在)".format(date.today().isoformat())),\
