@@ -4,7 +4,7 @@
 from . import commons, datedialog, dialogcommons, documentevent, historydialog, menudialog
 import unohelper, os, json
 from collections import OrderedDict
-from itertools import chain, compress, count, filterfalse, islice, zip_longest
+from itertools import chain, compress, count, islice, zip_longest
 from datetime import date, datetime, timedelta
 from com.sun.star.awt import MouseButton, MessageBoxButtons, MessageBoxResults  # 定数
 from com.sun.star.awt.MessageBoxType import QUERYBOX, WARNINGBOX  # enum
@@ -13,6 +13,7 @@ from com.sun.star.sheet import CellFlags  # 定数
 from com.sun.star.sheet.CellInsertMode import ROWS as insert_rows  # enum
 from com.sun.star.table import BorderLine2, TableBorder2 # Struct
 from com.sun.star.table import CellVertJustify2  # 定数
+from com.sun.star.table.CellOrientation import STACKED  # enum
 from com.sun.star.table.CellHoriJustify import CENTER, LEFT, RIGHT  # enum
 from com.sun.star.ui import ActionTriggerSeparatorType  # 定数
 from com.sun.star.ui.ContextMenuInterceptorAction import EXECUTE_MODIFIED  # enum
@@ -281,7 +282,7 @@ def kurikoshi(xscriptcontext, querybox, txt, startday, endday):
 		componentwindow.getToolkit().createMessageBox(componentwindow, WARNINGBOX, MessageBoxButtons.BUTTONS_OK, "WEntryBook", msg).execute()		
 def createFinancialStatements(xscriptcontext, txt):  # 決算書作成。
 	doc = xscriptcontext.getDocument()	
-	settlingdaytxt, sectiontxt = getDaytxts()	
+	datetxtforfile, *datetxts = getDaytxts()
 	newdoc = xscriptcontext.getDesktop().loadComponentFromURL("private:factory/scalc", "_blank", 0, ())  # 新規ドキュメントの取得。	
 	indicator = newdoc.getCurrentController().getFrame().createStatusIndicator()  # 新規ドキュメントのステータスインディケーターを取得。				
 	indicator.start("{}中".format(txt), VARS.emptycolumn)  # 新規ドキュメントを作成後はステータスバーを表示できない。	
@@ -289,9 +290,9 @@ def createFinancialStatements(xscriptcontext, txt):  # 決算書作成。
 	if not headerrows:
 		commons.showErrorMessageBox(doc.getCurrentController(), "シートのデータが取得できません。\n処理を中止します。")	
 		return		
-	addToTrialB, createTrialBalance = createTrialBalanceCreator(xscriptcontext, settlingdaytxt)	 # 試算表作成のための関数を取得。
-	addPL, createPL = createProfitAndLossCreator(xscriptcontext, settlingdaytxt)	 # 損益計算書作成のための関数を取得。
-	addToBS, createBalanceSheet = createBalanceSheetCreator(xscriptcontext, settlingdaytxt)	 # 賃借対照表作成のための関数を取得。
+	addToTrialB, createTrialBalance = createTrialBalanceCreator(xscriptcontext, datetxts)	 # 試算表作成のための関数を取得。
+	addPL, createPL = createProfitAndLossCreator(xscriptcontext, datetxts)	 # 損益計算書作成のための関数を取得。
+	addToBS, createBalanceSheet = createBalanceSheetCreator(xscriptcontext, datetxts)	 # 賃借対照表作成のための関数を取得。
 	bkarikata = []  # 各科目の期首借方金額を入れるリスト。
 	bkashikata = []  # 各科目の期首貸方金額を入れるリスト。
 	karikata = []  # 各科目の期中借方金額を入れるリスト。
@@ -301,6 +302,7 @@ def createFinancialStatements(xscriptcontext, txt):  # 決算書作成。
 	kamoku = ""  # 科目のキャッシュ。
 	kubun = ""  # 区分のキャッシュ。賃借対照表作成用。
 	flg = True if "繰越" in datarows[VARS.splittedrow][VARS.daycolumn+1] else False  # 繰越フラグ。繰越行がないときは期首データはないということ。
+	indicator.setText("各科目を処理中")
 	for i in zip(*headerrows, *[i[VARS.splittedcolumn:] for i in datarows[VARS.splittedrow-1:]]):  # 列インデックス、区分、科目、補助科目、列合計、固定列以下の列の要素、をイテレート。
 		indicator.setValue(i[0])
 		if kamoku!=i[2]:  # 科目が切り替わった時。
@@ -340,15 +342,18 @@ def createFinancialStatements(xscriptcontext, txt):  # 決算書作成。
 			ekashikata.append((i[4] or 0)*sign)
 	width, leftmargin, rightmargin = newdoc.getStyleFamilies()["PageStyles"]["Default"].getPropertyValues(("Width", "LeftMargin", "RightMargin"))
 	pagewidth = width - leftmargin - rightmargin - 5  # 印刷幅を1/100mmで取得。なぜかはみ出るのでマージンを取る。	
+	indicator.setText("試算表を描画中")
 	createTrialBalance(newdoc, pagewidth)  # 試算表シートの作成。
+	indicator.setText("損益計算書を描画中")
 	createPL(newdoc, pagewidth)  # 損益計算書シートの作成。
+	indicator.setText("賃借対照表を描画中")
 	createBalanceSheet(newdoc, pagewidth)  # 賃借対照表シートの作成。
-	newdocname = "決算書_{}_{}.ods".format(sectiontxt, datetime.now().strftime("%Y%m%d%H%M%S"))
+	newdocname = "決算書_{}_{}.ods".format(datetxtforfile, datetime.now().strftime("%Y%m%d%H%M%S"))
 	indicator.setText("Saving {}".format(newdocname))	
 	saveNewDoc(doc, newdoc, newdocname)	
 	indicator.end()  # reset()の前にend()しておかないと元に戻らない。
 	indicator.reset()  # ここでリセットしておかないと例外が発生した時にリセットする機会がない。	
-def createProfitAndLossCreator(xscriptcontext, settlingdaytxt):	# 損益通算書の作成。
+def createProfitAndLossCreator(xscriptcontext, datetxts):	# 損益通算書の作成。
 	expensesdatarows = []  # 経費のデータ行を取得するリスト。
 	kamokuvaluedic = {}  # キー: 科目、値: 金額、の辞書。
 	def addPL(kubun, kamoku, sums):
@@ -360,12 +365,13 @@ def createProfitAndLossCreator(xscriptcontext, settlingdaytxt):	# 損益通算�
 		elif kubun=="収益":  # 貸方科目。"売上金額", "貸倒引当金戻入", "期末商品棚卸高"。これ以外の収益は想定していない。
 			kamokuvaluedic[kamoku] = sums[4]
 	def createPL(newdoc, pagewidth):
+		datetxtforsheet, presentdatetxt, dummy = datetxts
 		newsheets = newdoc.getSheets()
 		newsheetname = "損益計算書"		
 		newsheets.insertNewByName(newsheetname, len(newsheets))
 		newsheet = newsheets[newsheetname]			
 		newdatarows = [("損益計算書", "", "", ""),\
-					(settlingdaytxt, "", "", ""),\
+					(datetxtforsheet, "", "", presentdatetxt),\
 					("科目", "", "", "金額")]  # 新規シートのヘッダー行。
 		newdatarows.append(("売上(収入)金額", "", "", kamokuvaluedic.get("売上金額", 0)))			
 		newdatarows.append(("売上原価", "期首商品棚卸高", "", kamokuvaluedic.get("期首商品棚卸高", 0)))
@@ -375,10 +381,10 @@ def createProfitAndLossCreator(xscriptcontext, settlingdaytxt):	# 損益通算�
 		newdatarows.append(("", "差引原価", "", newdatarows[-2][-1]-newdatarows[-1][-1]))
 		grossprofit = newdatarows[3][-1] - newdatarows[-1][-1]
 		newdatarows.append(("差引金額", "", "", grossprofit))
-		newdatarows.extend(expensesdatarows)
 		expensestotal = sum(i[-1] for i in expensesdatarows)
-		newdatarows.append(("", "計", "", expensestotal))
 		profit = grossprofit - expensestotal
+		newdatarows.extend(expensesdatarows)
+		newdatarows.append(("", "計", "", expensestotal))
 		newdatarows.append(("差引金額", "", "", profit))
 		newdatarows.append(("各種引当金・準備金等", "繰戻額等", "貸倒引当金", kamokuvaluedic.get("貸倒引当金戻入", 0)))
 		fb = newdatarows[-1][-1]
@@ -406,23 +412,37 @@ def createProfitAndLossCreator(xscriptcontext, settlingdaytxt):	# 損益通算�
 		selection = newdoc.getCurrentSelection()
 		newcontroller.select(newsheet[2:rowscount, :columnscount])		
 		drawTableBorders(xscriptcontext, newcontroller.getFrame())		
-		newcontroller.select(selection)			
-		newsheet[:rowscount, 3].setPropertyValue("NumberFormat", commons.formatkeyCreator(newdoc)("#,##0;[BLUE]-#,##0"))	
-	
-	
-	
-	
-	
+		newcontroller.select(selection)		
+		datarange = newsheet[:rowscount, 3]	
+		datarange.setPropertyValue("NumberFormat", commons.formatkeyCreator(newdoc)("#,##0;[BLUE]-#,##0"))	
+		cellrangeobjects = newsheet[0, 0], newsheet[2, 0], newsheet[expensesendrow+1, 0]
+		setCellRangeProperty(newdoc, (i.getRangeAddress() for i in cellrangeobjects), lambda x: x.setPropertyValue("HoriJustify", CENTER))
+		cellrangeobjects = newsheet[4, 0], newsheet[10, 0], newsheet[expensesendrow+1, 0]
+		setCellRangeProperty(newdoc, (i.getRangeAddress() for i in cellrangeobjects), lambda x: x.setPropertyValues(("HoriJustify", "Orientation"), (CENTER, STACKED)))	
+		cellrangeobjects = newsheet[expensesendrow+1, 1], newsheet[expensesendrow+3, 1]
+		setCellRangeProperty(newdoc, (i.getRangeAddress() for i in cellrangeobjects), lambda x: x.setPropertyValue("VertJustify", CellVertJustify2.CENTER))
+		newsheet[1, 3].setPropertyValue("HoriJustify", RIGHT)
+		searchdescriptor = newsheet.createSearchDescriptor()
+		searchdescriptor.setSearchString(0)  # 0のセルを取得。戻り値はない。	
+		cellranges = datarange.findAll(searchdescriptor)  # 値のあるセルから0以外が入っているセル範囲コレクションを取得。見つからなかった時はNoneが返る。
+		if cellranges:
+			cellranges.clearContents(CellFlags.VALUE)  # 0のセルを空セルにする。	
+		newkingakuwidth = 5000 	
+		columns = newsheet.getColumns()
+		columns[0].setPropertyValue("Width", 1000) 
+		columns[1].setPropertyValue("Width", 2200) 
+		columns[2].setPropertyValue("Width", 3500) 
+		columns[3].setPropertyValue("Width", newkingakuwidth)  # 金額列の列幅を設定。
 	return addPL, createPL
-def createTrialBalanceCreator(xscriptcontext, settlingdaytxt):  # 試算表の作成。
+def createTrialBalanceCreator(xscriptcontext, datetxts):  # 試算表の作成。
+	datetxtforsheet, presentdatetxt, dummy = datetxts
 	newdatarows = [("試算表", "", "", "", "", "", ""),\
-				(settlingdaytxt, "", "", "", "", "", ""),\
+				(datetxtforsheet, "", "", "", "", "", presentdatetxt),\
 				("勘定科目", "期首残高", "", "期中取引", "", "期末残高", ""),\
 				("", "借方", "貸方", "借方", "貸方", "借方", "貸方")]  # 新規シートのヘッダー行。	
 	def addToTrialB(kamoku, sums):
 		newdatarows.append((kamoku, *sums))
 	def createTrialBalance(newdoc, pagewidth):
-		newkingakuwidth = 2000  # 科目金額列幅。	
 		newdatarows.append(("合計", *list(map(sum, islice(zip(*newdatarows[4:]), 1, None))),))  # 各列合計を取得。	
 		newsheets = newdoc.getSheets()
 		newsheet = newsheets[0]
@@ -443,24 +463,26 @@ def createTrialBalanceCreator(xscriptcontext, settlingdaytxt):  # 試算表の�
 		datarange = newsheet[4:rowscount, 1:columnscount]		
 		searchdescriptor = newsheet.createSearchDescriptor()
 		searchdescriptor.setSearchString(0)  # 0のセルを取得。戻り値はない。	
-		cellranges = datarange.queryContentCells(CellFlags.VALUE).findAll(searchdescriptor)  # 値のあるセルから0以外が入っているセル範囲コレクションを取得。見つからなかった時はNoneが返る。
+		cellranges = datarange.findAll(searchdescriptor)  # 値のあるセルから0以外が入っているセル範囲コレクションを取得。見つからなかった時はNoneが返る。
 		if cellranges:
 			cellranges.clearContents(CellFlags.VALUE)  # 0のセルを空セルにする。
 		datarange.setPropertyValue("NumberFormat", commons.formatkeyCreator(newdoc)("#,##0;[BLUE]-#,##0"))	
+		newsheet[1, columnscount-1].setPropertyValue("HoriJustify", RIGHT)
 		newcontroller = newdoc.getCurrentController()	
 		selection = newdoc.getCurrentSelection()
 		newcontroller.select(newsheet[2:rowscount, :columnscount])		
 		drawTableBorders(xscriptcontext, newcontroller.getFrame())	
 		newcontroller.select(selection)	
+		newkingakuwidth = 2000  # 科目金額列幅。
 		newsheet[0, 1:columnscount].getColumns().setPropertyValue("Width", newkingakuwidth)  # 金額列の列幅を設定。
 		newsheet.getColumns()[0].setPropertyValue("Width", pagewidth-newkingakuwidth*(columnscount-1))  # 科目列幅を設定。残った幅をすべて割り当てる。	
 	return addToTrialB, createTrialBalance
-def createBalanceSheetCreator(xscriptcontext, settlingdaytxt):  # 損益計算書の作成。
-	dummy, sdaytxt, dummy, edaytxt = settlingdaytxt.split(" ")
+def createBalanceSheetCreator(xscriptcontext, datetxts):  # 損益計算書の作成。
+	datetxtforsheet, presentdatetxt, datetxtsforBS = datetxts
 	barancesheetrows = [("賃借対照表", "", "", "", "", ""),\
-						(settlingdaytxt, "", "", "", "", "({}現在)".format(date.today().isoformat())),\
+						(datetxtforsheet, "", "", "", "", presentdatetxt),\
 						("資産の部", "", "", "負債・資本の部", "", ""),\
-						("科目", "{}月{}日(期首)".format(*[i.lstrip("0") for i in sdaytxt.split("-")[1:]]), "{}月{}日(期末)".format(*[i.lstrip("0") for i in edaytxt.split("-")[1:]]))*2]
+						("科目", *datetxtsforBS, "科目", *datetxtsforBS)]
 	balancesheetkarikata = []  # 賃借対照表の借方の(科目, 期首金額, 期末金額)のタプルを入れるリスト。
 	balancesheetkashikata = []  # 賃借対照表の貸方の(科目, 期首金額, 期末金額)のタプルを入れるリスト。
 	shotoku = 0
@@ -486,7 +508,6 @@ def createBalanceSheetCreator(xscriptcontext, settlingdaytxt):  # 損益計算�
 		elif kubun=="収益":
 			shotoku += sums[5]	
 	def createBalanceSheet(newdoc, pagewidth):	
-		newkingakuwidth = 2700
 		newcontroller = newdoc.getCurrentController()		
 		newsheets = newdoc.getSheets()
 		barancesheetrows.extend(i[0]+i[1] for i in zip_longest(balancesheetkarikata, balancesheetkashikata, fillvalue=("", 0, 0)))  # (借方科目, 期首金額, 期末金額, 貸方科目, 期首金額, 期末金額)をイテレート。chainやchain.from_iterableだとイテレーターのリストが返るのでさらに展開しないといけない。
@@ -511,11 +532,13 @@ def createBalanceSheetCreator(xscriptcontext, settlingdaytxt):  # 損益計算�
 		newcontroller.select(newsheet[2:rowscount, :columnscount])		
 		drawTableBorders(xscriptcontext, newcontroller.getFrame())		
 		newcontroller.select(selection)	
+		newkingakuwidth = 2700
 		newsheet[0, 1:3].getColumns().setPropertyValue("Width", newkingakuwidth)  # 金額列の列幅を設定。
 		newsheet[0, 4:6].getColumns().setPropertyValue("Width", newkingakuwidth)  # 金額列の列幅を設定。
 		kamokuwidth = (pagewidth-newkingakuwidth*4)//2
-		newsheet[0, 0].getColumns().setPropertyValue("Width", kamokuwidth)
-		newsheet[0, 3].getColumns().setPropertyValue("Width", kamokuwidth)
+		columns = newsheet.getColumns()
+		columns[0].setPropertyValue("Width", kamokuwidth)
+		columns[3].setPropertyValue("Width", kamokuwidth)
 		cellrangeobjects = 	newsheet[4:rowscount, 1:3], newsheet[4:rowscount, 4:6] 
 		setCellRangeProperty(newdoc, (i.getRangeAddress() for i in cellrangeobjects), lambda x: x.setPropertyValue("NumberFormat", commons.formatkeyCreator(newdoc)("#,##0;[BLUE]-#,##0")))
 		cellrangeobjects = newsheet[4:rowscount-2, 1:3], newsheet[4:rowscount-4, 4:6]  # 事業主貸、合計、事業主借、元入金、所得の金額を除いた金額欄は0は空セルにする。
@@ -531,7 +554,7 @@ def createBalanceSheetCreator(xscriptcontext, settlingdaytxt):  # 損益計算�
 	return addToBS, createBalanceSheet
 def createShiwakeCho(xscriptcontext, txt):
 	doc = xscriptcontext.getDocument()	
-	settlingdaytxt, sectiontxt = getDaytxts()
+	datetxtforfile, datetxtforsheet, presentdatetxt, dummy = getDaytxts()
 	sheet = VARS.sheet
 	daycolumn = VARS.daycolumn
 	slipnocolumn = daycolumn - 1
@@ -550,7 +573,7 @@ def createShiwakeCho(xscriptcontext, txt):
 		newdoc.close(True)	
 		return
 	newdatarows = [(kozakamokuname, "", "", "", "", ""),\
-				(settlingdaytxt, "", "", "", "", ""),\
+				(datetxtforsheet, "", "", "", "", presentdatetxt),\
 				("日付", "借方科目", "借方金額", "貸方科目", "貸方金額", "摘要"),\
 				("伝票番号", "借方補助科目", "", "貸方補助科目", "", "")]  # 新規シートのヘッダー行。
 	slipstartrows = []  # 新規シートの伝票開始行インデックスのリスト。
@@ -585,7 +608,7 @@ def createShiwakeCho(xscriptcontext, txt):
 		newdoc.close(True)					
 		return
 	indicator.setText("Formatting")	
-	newdocname = "仕訳日記帳_{}_{}.ods".format(sectiontxt, datetime.now().strftime("%Y%m%d%H%M%S"))
+	newdocname = "仕訳日記帳_{}_{}.ods".format(datetxtforfile, datetime.now().strftime("%Y%m%d%H%M%S"))
 	createNewSheetCreator(newdoc, newkamokucolumnidxes, newkingakucolumns, newheadermergecolumns, newtekiyocolumn)(kozakamokuname, newdatarows, slipstartrows)
 	indicator.setText("Saving {}".format(newdocname))	
 	saveNewDoc(doc, newdoc, newdocname)		
@@ -593,7 +616,7 @@ def createShiwakeCho(xscriptcontext, txt):
 	indicator.reset()  # ここでリセットしておかないと例外が発生した時にリセットする機会がない。		
 def createHojoMotoCho(xscriptcontext, txt, docname, hojokamokuindexgenefunc):
 	doc = xscriptcontext.getDocument()	
-	settlingdaytxt, sectiontxt = getDaytxts()
+	datetxtforfile, datetxtforsheet, *dummy = getDaytxts()
 	newdoc = xscriptcontext.getDesktop().loadComponentFromURL("private:factory/scalc", "_blank", 0, ())  # 新規ドキュメントの取得。	
 	indicator = newdoc.getCurrentController().getFrame().createStatusIndicator()  # 新規ドキュメントのステータスインディケーターを取得。			
 	indicator.start("{}中".format(txt), VARS.emptycolumn)
@@ -606,7 +629,7 @@ def createHojoMotoCho(xscriptcontext, txt, docname, hojokamokuindexgenefunc):
 		newdoc.close(True)	
 		return
 	createNewSheet = createNewSheetCreator(newdoc, newkamokucolumnidxes, newkingakucolumns, newheadermergecolumns, newtekiyocolumn)		
-	createHojoSheet = createHojoSheetCreator(settlingdaytxt, headerrows, datarows, createNewSheet)	
+	createHojoSheet = createHojoSheetCreator(datetxtforsheet, headerrows, datarows, createNewSheet)	
 	for k in hojokamokuindexgenefunc(headerrows):
 		indicator.setValue(k)
 		createHojoSheet(k)
@@ -614,19 +637,27 @@ def createHojoMotoCho(xscriptcontext, txt, docname, hojokamokuindexgenefunc):
 		commons.showErrorMessageBox(doc.getCurrentController(), "伝票がある科目が一つもありませんでした。")	
 		newdoc.close(True)				
 		return										
-	newdocname = "{}_{}_{}.ods".format(docname, sectiontxt, datetime.now().strftime("%Y%m%d%H%M%S"))
+	newdocname = "{}_{}_{}.ods".format(docname, datetxtforfile, datetime.now().strftime("%Y%m%d%H%M%S"))
 	indicator.setText("Saving {}".format(newdocname))	
 	saveNewDoc(doc, newdoc, newdocname)	
 	indicator.end()  # reset()の前にend()しておかないと元に戻らない。
 	indicator.reset()  # ここでリセットしておかないと例外が発生した時にリセットする機会がない。	
 def getDaytxts():  # 帳簿に必要な日付文字列を取得。
-	startday, endday = [VARS.sheet[i, VARS.daycolumn].getString() for i in VARS.settlingdayrows]
-	settlingdaytxt = "自: {} 至: {}".format(startday, endday)  # 賃借対照表作成ではdummy, sdaytxt, dummy, edaytxt = settlingdaytxt.split(" ")ができないといけない。
-	sectiontxt = "{}-{}".format(startday.replace("-", ""), endday.replace("-", ""))
-	return settlingdaytxt, sectiontxt
+	sdate, edate = getDateSection()  # 期首日と期末日を取得。
+	if not sdate:  # 期首日と期末日が取得できていないときは空文字を返す。
+		return "", "", ""
+	startdaytxt, enddaytxt = sdate.isoformat(), edate.isoformat()
+	datetxtforsheet = "自: {} 至: {}".format(startdaytxt, enddaytxt)
+	datetxtforfile = "{}-{}".format(startdaytxt.replace("-", ""), enddaytxt.replace("-", ""))
+	datetxtsforBS = "{}月{}日(期首)".format(sdate.month, sdate.day), "{}月{}日(期末)".format(edate.month, edate.day)
+	todaydate = date.today()
+	if todaydate<edate:  # 今日が期末日より前の時は今日にする。
+		edate = todaydate
+	presentdatetxt = "({}現在)".format(edate.isoformat())  # 期末日、または、今日がその前なら今日の日付。	
+	return datetxtforfile, datetxtforsheet, presentdatetxt, datetxtsforBS
 def createMotoCho(xscriptcontext, txt, docname, kozakamokunamegenefunc):  # xscriptcontext, ステータスバーの表示文字列、帳簿ファイル名の元、口座科目名のイテレーターを返す関数。
 	doc = xscriptcontext.getDocument()	
-	settlingdaytxt, sectiontxt = getDaytxts()
+	datetxtforfile, datetxtforsheet, *dummy = getDaytxts()
 	newdoc = xscriptcontext.getDesktop().loadComponentFromURL("private:factory/scalc", "_blank", 0, ())  # 新規ドキュメントの取得。	
 	indicator = newdoc.getCurrentController().getFrame().createStatusIndicator()  # 新規ドキュメントのステータスインディケーターを取得。			
 	indicator.start("{}中".format(txt), VARS.emptycolumn) 
@@ -639,7 +670,7 @@ def createMotoCho(xscriptcontext, txt, docname, kozakamokunamegenefunc):  # xscr
 		newdoc.close(True)				
 		return
 	createNewSheet = createNewSheetCreator(newdoc, newkamokucolumnidxes, newkingakucolumns, newheadermergecolumns, newtekiyocolumn)
-	createKamokuSheet = createKamokuSheetCreator(settlingdaytxt, headerrows, datarows, createNewSheet)
+	createKamokuSheet = createKamokuSheetCreator(datetxtforsheet, headerrows, datarows, createNewSheet)
 	for i, kozakamokuname in enumerate(kozakamokunamegenefunc(datarows), start=VARS.splittedcolumn):  # 口座科目名をイテレート。科目行の空セルでない値のみイテレート。
 		indicator.setValue(i)
 		createKamokuSheet(kozakamokuname)
@@ -647,7 +678,7 @@ def createMotoCho(xscriptcontext, txt, docname, kozakamokunamegenefunc):  # xscr
 		commons.showErrorMessageBox(doc.getCurrentController(), "伝票がある科目が一つもありませんでした。")	
 		newdoc.close(True)				
 		return			
-	newdocname = "{}_{}_{}.ods".format(docname, sectiontxt, datetime.now().strftime("%Y%m%d%H%M%S"))
+	newdocname = "{}_{}_{}.ods".format(docname, datetxtforfile, datetime.now().strftime("%Y%m%d%H%M%S"))
 	indicator.setText("Saving {}".format(newdocname))	
 	saveNewDoc(doc, newdoc, newdocname)	
 	indicator.end()  # reset()の前にend()しておかないと元に戻らない。
@@ -854,14 +885,14 @@ def getDataRows(xscriptcontext):
 		gene = zip(*datarows[VARS.splittedrow:])  # 固定列行以下の列のデータのイテレーター。
 		if any(filter(None, next(gene))):  # 伝票内計が0か空セル以外の値をイテレート。
 			msg = "貸方と借方が一致しない行があります。"
-		elif any(filterfalse(None, next(gene))):  # 伝票番号列がFalseのセルをイテレート。
+		elif "" in next(gene):  # 伝票番号列に空セルがある時。
 			msg = "伝票番号のない行があります。"
 		else:
 			days = next(gene)  # 伝票の取引日列のタプルを取得。
-			if any(filterfalse(None, days)):  # 取引日列がFalseのセルをイテレート。
+			if "" in days:  # 取引日列に空セルにある時。
 				msg = "取引日のない行があります。"
 			else:
-				dates = getDateSection()  # 決算開始日と終了日を取得。
+				dates = getDateSection()  # 期首日と期末日を取得。
 				if all(dates):  # 決算日がある時。
 					functionaccess = smgr.createInstanceWithContext("com.sun.star.sheet.FunctionAccess", ctx)  # シート関数利用のため。	
 					sday, eday = [functionaccess.callFunction("DATE", (i.year, i.month, i.day)) for i in dates]
