@@ -362,7 +362,7 @@ def createProfitAndLossCreator(xscriptcontext, datetxts):	# 損益通算書の�
 				kamokuvaluedic[kamoku] = sums[5]
 			else:  # その他の経費。
 				expensesdatarows.append(("経費", kamoku, "", sums[5]))
-		elif kubun=="収益":  # 貸方科目。"売上金額", "貸倒引当金戻入", "期末商品棚卸高"。これ以外の収益は想定していない。
+		elif kubun=="収益":  # 貸方科目。"売上金額", "貸倒引当金繰戻", "期末商品棚卸高"。これ以外の収益は想定していない。
 			kamokuvaluedic[kamoku] = sums[4]
 	def createPL(newdoc, pagewidth):
 		datetxtforsheet, presentdatetxt, dummy = datetxts
@@ -386,7 +386,7 @@ def createProfitAndLossCreator(xscriptcontext, datetxts):	# 損益通算書の�
 		newdatarows.extend(expensesdatarows)
 		newdatarows.append(("", "計", "", expensestotal))
 		newdatarows.append(("差引金額", "", "", profit))
-		newdatarows.append(("各種引当金・準備金等", "繰戻額等", "貸倒引当金", kamokuvaluedic.get("貸倒引当金戻入", 0)))
+		newdatarows.append(("各種引当金・準備金等", "繰戻額等", "貸倒引当金", kamokuvaluedic.get("貸倒引当金繰戻", 0)))
 		fb = newdatarows[-1][-1]
 		newdatarows.append(("", "", "計", fb))
 		newdatarows.append(("", "繰入額等", "専従者給与", kamokuvaluedic.get("専従者給与", 0)))
