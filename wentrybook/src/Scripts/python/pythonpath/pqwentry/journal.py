@@ -201,18 +201,18 @@ def callback_menuCreator(xscriptcontext):  # 内側のスコープでクロー�
 def kurikoshi(xscriptcontext, querybox, txt, startday, endday):
 	doc = xscriptcontext.getDocument()
 	controller = doc.getCurrentController()		
+	indicator = controller.getFrame().createStatusIndicator()  # 現ドキュメントのステータスインディケーターを取得。				
+	indicator.start("{}中".format(txt), 0)		
 	sheet = VARS.sheet
 	splittedrow = VARS.splittedrow	
 	daycolumn = VARS.daycolumn
 	slipnocolumn = daycolumn - 1
 	tekiyocolumn = daycolumn + 1
 	splittedcolumn = VARS.splittedcolumn
-	indicator = controller.getFrame().createStatusIndicator()  # 現ドキュメントのステータスインディケーターを取得。				
-	indicator.start("{}中".format(txt), 0)		
 	headerrows, datarows = getDataRows(xscriptcontext)  # 科目ヘッダー行とすべてのデータ行を取得。
 	if not headerrows:  # 伝票書式のエラーに引っかかった時ここで終わる。
 		return
-	indicator.setText("次期シートを取得")
+	indicator.setText("次期のシートを取得")
 	sheetname = sheet.getName()  # 現シート名を取得。
 	settledaytxt = "{}決算".format(endday.replace("-", ""))
 	if not sheetname.endswith(settledaytxt):
@@ -252,7 +252,7 @@ def kurikoshi(xscriptcontext, querybox, txt, startday, endday):
 		documentevent.addModifyListener(doc, [newsheet[splittedrow:, slipnocolumn:tekiyocolumn].getRangeAddress()], SlipNoModifyListener(xscriptcontext))  # 次期シートにModifyLsitenerの追加。
 		documentevent.addModifyListener(doc, [newsheet[splittedrow:, splittedcolumn:].getRangeAddress()], ValueModifyListener(xscriptcontext))  # 次期シートにModifyLsitenerの追加。
 		newheaderrowsgene = zip(*headerrows[1:])  # (区分行、科目行、補助科目行)をイテレートする。			
-	indicator.start("次期繰越金を取得", len(datarows[0]))		
+	indicator.start("次期繰越金を算出", len(datarows[0]))		
 	columnstotaldic = {i[:-1]: i[-1] for i in zip(*headerrows[1:], datarows[VARS.splittedrow-1][VARS.splittedcolumn:]) if i[-1]}  # キー: (区分、科目、補助科目)のタプル、値: 各列計、の辞書を取得。各列0が0や空セルのものは取得しない。
 	newmotoire = sum(v for k, v in columnstotaldic.items() if (k[0] in ("経費", "収益")) or (k[1] in ("事業主貸", "事業主借", "元入金")))  # 事業主貸は正、事業主借は負、元入金は負、経費は正、収益は負、なのですべて合計すれば新元入金になる。
 	carryovers = []  # 繰越行を取得するリスト。
@@ -281,11 +281,11 @@ def kurikoshi(xscriptcontext, querybox, txt, startday, endday):
 		componentwindow = controller.ComponentWindow
 		componentwindow.getToolkit().createMessageBox(componentwindow, WARNINGBOX, MessageBoxButtons.BUTTONS_OK, "WEntryBook", msg).execute()		
 def createFinancialStatements(xscriptcontext, txt):  # 決算書作成。
-	doc = xscriptcontext.getDocument()	
-	datetxtforfile, *datetxts = getDaytxts()
 	newdoc = xscriptcontext.getDesktop().loadComponentFromURL("private:factory/scalc", "_blank", 0, ())  # 新規ドキュメントの取得。	
 	indicator = newdoc.getCurrentController().getFrame().createStatusIndicator()  # 新規ドキュメントのステータスインディケーターを取得。				
-	indicator.start("{}中".format(txt), VARS.emptycolumn)  # 新規ドキュメントを作成後はステータスバーを表示できない。	
+	indicator.start("{}中".format(txt), VARS.emptycolumn)  # 新規ドキュメントを作成後はステータスバーを表示できない。		
+	doc = xscriptcontext.getDocument()	
+	datetxtforfile, *datetxts = getDaytxts()
 	headerrows, datarows = getDataRows(xscriptcontext)	
 	if not headerrows:
 		commons.showErrorMessageBox(doc.getCurrentController(), "シートのデータが取得できません。\n処理を中止します。")	
@@ -349,7 +349,7 @@ def createFinancialStatements(xscriptcontext, txt):  # 決算書作成。
 	indicator.setText("賃借対照表を描画中")
 	createBalanceSheet(newdoc, pagewidth)  # 賃借対照表シートの作成。
 	newdocname = "決算書_{}_{}.ods".format(datetxtforfile, datetime.now().strftime("%Y%m%d%H%M%S"))
-	indicator.setText("Saving {}".format(newdocname))	
+	indicator.setText("ファイルに保存中 {}".format(newdocname))	
 	saveNewDoc(doc, newdoc, newdocname)	
 	indicator.end()  # reset()の前にend()しておかないと元に戻らない。
 	indicator.reset()  # ここでリセットしておかないと例外が発生した時にリセットする機会がない。	
@@ -553,6 +553,9 @@ def createBalanceSheetCreator(xscriptcontext, datetxts):  # 損益計算書の�
 		setCellRangeProperty(newdoc, (i.getRangeAddress() for i in cellrangeobjects), lambda x: x.setPropertyValues(("DiagonalBLTR", "CharColor"), (BorderLine2(LineWidth=10, Color=commons.COLORS["black"]), commons.COLORS["white"])))
 	return addToBS, createBalanceSheet
 def createShiwakeCho(xscriptcontext, txt):
+	newdoc = xscriptcontext.getDesktop().loadComponentFromURL("private:factory/scalc", "_blank", 0, ())  # 新規ドキュメントの取得。	
+	indicator = newdoc.getCurrentController().getFrame().createStatusIndicator()  # 新規ドキュメントのステータスインディケーターを取得。
+	indicator.start("{}中".format(txt), VARS.emptyrow)	
 	doc = xscriptcontext.getDocument()	
 	datetxtforfile, datetxtforsheet, presentdatetxt, dummy = getDaytxts()
 	sheet = VARS.sheet
@@ -560,9 +563,6 @@ def createShiwakeCho(xscriptcontext, txt):
 	slipnocolumn = daycolumn - 1
 	tekiyocolumn = daycolumn + 1
 	splittedcolumn = VARS.splittedcolumn		
-	newdoc = xscriptcontext.getDesktop().loadComponentFromURL("private:factory/scalc", "_blank", 0, ())  # 新規ドキュメントの取得。	
-	indicator = newdoc.getCurrentController().getFrame().createStatusIndicator()  # 新規ドキュメントのステータスインディケーターを取得。
-	indicator.start("{}中".format(txt), VARS.emptyrow)
 	kozakamokuname = "仕訳日記帳"
 	newkingakucolumns = 2, 4  # 金額書式にする列インデックスのタプル。
 	newtekiyocolumn = 5  # 摘要列インデックス。
@@ -578,6 +578,7 @@ def createShiwakeCho(xscriptcontext, txt):
 				("伝票番号", "借方補助科目", "", "貸方補助科目", "", "")]  # 新規シートのヘッダー行。
 	slipstartrows = []  # 新規シートの伝票開始行インデックスのリスト。
 	datevalue = ""  # 伝票の日付シリアル値。		
+	indicator.setText("各伝票を処理中")
 	for i, datarow in enumerate(datarows[VARS.splittedrow:], start=VARS.splittedrow):  # 伝票行を行インデックスと共にイテレート。
 		indicator.setValue(i)
 		slipstartrows.append(len(newdatarows))  # 新規シートの伝票開始行インデックスを取得。
@@ -607,19 +608,19 @@ def createShiwakeCho(xscriptcontext, txt):
 		commons.showErrorMessageBox(doc.getCurrentController(), "伝票が一つもありません。\n処理を中止します。")	
 		newdoc.close(True)					
 		return
-	indicator.setText("Formatting")	
+	indicator.setText("仕訳日記帳を描画中")	
 	newdocname = "仕訳日記帳_{}_{}.ods".format(datetxtforfile, datetime.now().strftime("%Y%m%d%H%M%S"))
 	createNewSheetCreator(newdoc, newkamokucolumnidxes, newkingakucolumns, newheadermergecolumns, newtekiyocolumn)(kozakamokuname, newdatarows, slipstartrows)
-	indicator.setText("Saving {}".format(newdocname))	
+	indicator.setText("ファイルに保存中 {}".format(newdocname))	
 	saveNewDoc(doc, newdoc, newdocname)		
 	indicator.end()  # reset()の前にend()しておかないと元に戻らない。
 	indicator.reset()  # ここでリセットしておかないと例外が発生した時にリセットする機会がない。		
 def createHojoMotoCho(xscriptcontext, txt, docname, hojokamokuindexgenefunc):
-	doc = xscriptcontext.getDocument()	
-	datetxtforfile, datetxtforsheet, *dummy = getDaytxts()
 	newdoc = xscriptcontext.getDesktop().loadComponentFromURL("private:factory/scalc", "_blank", 0, ())  # 新規ドキュメントの取得。	
 	indicator = newdoc.getCurrentController().getFrame().createStatusIndicator()  # 新規ドキュメントのステータスインディケーターを取得。			
-	indicator.start("{}中".format(txt), VARS.emptycolumn)
+	indicator.start("{}中".format(txt), VARS.emptycolumn)	
+	doc = xscriptcontext.getDocument()	
+	datetxtforfile, datetxtforsheet, *dummy = getDaytxts()
 	newheadermergecolumns = 2, 3, 4, 5  # セル結合するヘッダー行の列インデックスのタプル。
 	newkingakucolumns = 3, 4, 5  # 金額書式にする列インデックスのタプル。
 	newtekiyocolumn = 2  # 摘要列インデックス。
@@ -630,6 +631,7 @@ def createHojoMotoCho(xscriptcontext, txt, docname, hojokamokuindexgenefunc):
 		return
 	createNewSheet = createNewSheetCreator(newdoc, newkamokucolumnidxes, newkingakucolumns, newheadermergecolumns, newtekiyocolumn)		
 	createHojoSheet = createHojoSheetCreator(datetxtforsheet, headerrows, datarows, createNewSheet)	
+	indicator.setText("各科目を処理中")
 	for k in hojokamokuindexgenefunc(headerrows):
 		indicator.setValue(k)
 		createHojoSheet(k)
@@ -638,7 +640,7 @@ def createHojoMotoCho(xscriptcontext, txt, docname, hojokamokuindexgenefunc):
 		newdoc.close(True)				
 		return										
 	newdocname = "{}_{}_{}.ods".format(docname, datetxtforfile, datetime.now().strftime("%Y%m%d%H%M%S"))
-	indicator.setText("Saving {}".format(newdocname))	
+	indicator.setText("ファイルに保存中 {}".format(newdocname))	
 	saveNewDoc(doc, newdoc, newdocname)	
 	indicator.end()  # reset()の前にend()しておかないと元に戻らない。
 	indicator.reset()  # ここでリセットしておかないと例外が発生した時にリセットする機会がない。	
@@ -656,11 +658,11 @@ def getDaytxts():  # 帳簿に必要な日付文字列を取得。
 	presentdatetxt = "({}現在)".format(edate.isoformat())  # 期末日、または、今日がその前なら今日の日付。	
 	return datetxtforfile, datetxtforsheet, presentdatetxt, datetxtsforBS
 def createMotoCho(xscriptcontext, txt, docname, kozakamokunamegenefunc):  # xscriptcontext, ステータスバーの表示文字列、帳簿ファイル名の元、口座科目名のイテレーターを返す関数。
-	doc = xscriptcontext.getDocument()	
-	datetxtforfile, datetxtforsheet, *dummy = getDaytxts()
 	newdoc = xscriptcontext.getDesktop().loadComponentFromURL("private:factory/scalc", "_blank", 0, ())  # 新規ドキュメントの取得。	
 	indicator = newdoc.getCurrentController().getFrame().createStatusIndicator()  # 新規ドキュメントのステータスインディケーターを取得。			
 	indicator.start("{}中".format(txt), VARS.emptycolumn) 
+	doc = xscriptcontext.getDocument()	
+	datetxtforfile, datetxtforsheet, *dummy = getDaytxts()	
 	newkingakucolumns = 3, 4, 5  # 金額書式にする列インデックスのタプル。
 	newtekiyocolumn = 2  # 摘要列インデックス。
 	newkamokucolumnidxes = 1,  # 科目列インデックスのタプル。
@@ -671,6 +673,7 @@ def createMotoCho(xscriptcontext, txt, docname, kozakamokunamegenefunc):  # xscr
 		return
 	createNewSheet = createNewSheetCreator(newdoc, newkamokucolumnidxes, newkingakucolumns, newheadermergecolumns, newtekiyocolumn)
 	createKamokuSheet = createKamokuSheetCreator(datetxtforsheet, headerrows, datarows, createNewSheet)
+	indicator.setText("各科目を処理中")
 	for i, kozakamokuname in enumerate(kozakamokunamegenefunc(datarows), start=VARS.splittedcolumn):  # 口座科目名をイテレート。科目行の空セルでない値のみイテレート。
 		indicator.setValue(i)
 		createKamokuSheet(kozakamokuname)
@@ -679,7 +682,7 @@ def createMotoCho(xscriptcontext, txt, docname, kozakamokunamegenefunc):  # xscr
 		newdoc.close(True)				
 		return			
 	newdocname = "{}_{}_{}.ods".format(docname, datetxtforfile, datetime.now().strftime("%Y%m%d%H%M%S"))
-	indicator.setText("Saving {}".format(newdocname))	
+	indicator.setText("ファイルに保存中 {}".format(newdocname))	
 	saveNewDoc(doc, newdoc, newdocname)	
 	indicator.end()  # reset()の前にend()しておかないと元に戻らない。
 	indicator.reset()  # ここでリセットしておかないと例外が発生した時にリセットする機会がない。		
