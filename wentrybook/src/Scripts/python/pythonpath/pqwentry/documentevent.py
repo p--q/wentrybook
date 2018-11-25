@@ -50,8 +50,8 @@ def documentOnLoad(xscriptcontext):  # ドキュメントを開いた時。リ�
 			slipnorangeaddresses.append(i[splittedrow:, slipnocolumn:tekiyocolumn].getRangeAddress())  # 伝票番号列と取引日列のセル範囲アドレスを取得。固定行に行挿入でも反応できるように固定行の上行から付ける。
 			valuerangeaddresses.append(i[splittedrow:, splittedcolumn:].getRangeAddress())  # 固定列右のセル範囲アドレスを取得。固定行に行挿入でも反応できるように固定行の上行から付ける。
 	addModifyListener(doc, settlingdayrangeaddresses, journal.SettlingDayModifyListener(xscriptcontext))  # 決算日の変更を検知するリスナー。
-	addModifyListener(doc, slipnorangeaddresses, journal.SlipNoModifyListener(xscriptcontext))  # 伝票番号と取引日の変更を検知するリスナー。	
-	addModifyListener(doc, valuerangeaddresses, journal.ValueModifyListener(xscriptcontext))  # 伝票の金額の変更を検知するリスナー。	
+	slipnosubjectmodifylistener = addModifyListener(doc, slipnorangeaddresses, journal.SlipNoModifyListener(xscriptcontext))  # 伝票番号と取引日の変更を検知するリスナー。	
+	addModifyListener(doc, valuerangeaddresses, journal.ValueModifyListener(xscriptcontext, slipnosubjectmodifylistener))  # 伝票の金額の変更を検知するリスナー。取引日を変更するのでそれに追加しているModifyListenerを渡す。
 	[i[0][splittedrow, daycolumn:tekiyocolumn+1].setDataArray(((i[1], "前記より繰越"),)) for i in carryovers]  # ModifyListenerを追加してから繰越伝票に代入する。
 	sheet = sheets[sorted(sheetnames)[-1]]  # 最新年度の振替伝票シートを取得。			
 	doc.getCurrentController().setActiveSheet(sheet)
@@ -61,6 +61,7 @@ def addModifyListener(doc, rangeaddresses, modifylistener):
 	cellranges.addRangeAddresses(rangeaddresses, False)
 	cellranges.addModifyListener(modifylistener)
 	MODIFYLISTENERS.append((cellranges, modifylistener))	
+	return cellranges, modifylistener  # リスナーの付け外しのためにサブジェクトとリスナーのタプルを返す。
 def documentUnLoad(xscriptcontext):  # ドキュメントを閉じた時。リスナー削除後。
 	for subject, modifylistener in MODIFYLISTENERS:
 		subject.removeModifyListener(modifylistener)
