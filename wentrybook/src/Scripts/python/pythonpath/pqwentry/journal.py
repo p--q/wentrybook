@@ -34,9 +34,8 @@ class Journal():  # シート固有の値。
 			rowedges.append(cellranges.getRangeAddresses()[-1].EndRow+1)  # 取引日列の最終行インデックス+1を取得。
 		cellranges = sheet[self.splittedrow:, self.daycolumn+1].queryContentCells(CellFlags.STRING+CellFlags.VALUE)  # 摘要列の文字列か数値が入っているセルに限定して抽出。
 		if len(cellranges):
-			rowedges.append(cellranges.getRangeAddresses()[-1].EndRow+1)  # 摘要列の最終行インデックス+1を取得。			
-		if rowedges:
-			self.emptyrow = max(rowedges)  # 取引日列または摘要列の最終行インデックス+1を取得。			
+			rowedges.append(cellranges.getRangeAddresses()[-1].EndRow+1)  # 摘要列の最終行インデックス+1を取得。		
+		self.emptyrow = max(rowedges) if rowedges else VARS.splittedrow # 取引日列または摘要列の最終行インデックス+1を取得。		
 		columnedges = []
 		cellranges = sheet[self.kamokurow, self.splittedcolumn:].queryContentCells(CellFlags.STRING) 
 		if len(cellranges):
@@ -44,8 +43,7 @@ class Journal():  # シート固有の値。
 		cellranges = sheet[self.kamokurow+1, self.splittedcolumn:].queryContentCells(CellFlags.STRING) 
 		if len(cellranges):
 			columnedges.append(cellranges.getRangeAddresses()[-1].EndColumn+1)  # 補助科目行の右端+1インデックスを取得。
-		if columnedges:
-			self.emptycolumn = max(columnedges)  # 科目行または補助科目行の右端空列を取得。
+		self.emptycolumn = max(columnedges) if columnedges else VARS.splittedcolumn  # 科目行または補助科目行の右端空列を取得。
 VARS = Journal()
 def activeSpreadsheetChanged(activationevent, xscriptcontext):  # シートがアクティブになった時。ドキュメントを開いた時は発火しない。
 	initSheet(activationevent.ActiveSheet, xscriptcontext)
@@ -87,22 +85,29 @@ class ValueModifyListener(unohelper.Base, XModifyListener):
 		self.formatkey = commons.formatkeyCreator(xscriptcontext.getDocument())("#,##0;[BLUE]-#,##0")
 	def modified(self, eventobject):  # 固定行以下固定列右のセルが変化すると発火するメソッド。サブジェクトのどこが変化したかはわからない。eventobject.Sourceは対象全シートのセル範囲コレクション。
 		if VARS.sheet.getName().startswith("振替伝票"):
-			VARS.setSheet(VARS.sheet)  # 最終行と列を取得し直す。
-			datarange = VARS.sheet[VARS.splittedrow:, VARS.sliptotalcolumn]
-			datarange.clearContents(CellFlags.VALUE)
-			datarange.setPropertyValue("CellBackColor", -1)
-			datarows = VARS.sheet[VARS.splittedrow:VARS.emptyrow, VARS.splittedcolumn:VARS.emptycolumn].getDataArray()  # 伝票金額の全データ行を取得。
-			VARS.sheet[VARS.splittedrow-1, VARS.splittedcolumn:VARS.emptycolumn].setDataArray(([sum(filter(None, i)) for i in zip(*datarows)],))  # 列ごとの合計を再計算。空セルの空文字を除いて合計する。
-			datarange = VARS.sheet[VARS.splittedrow:VARS.emptyrow, VARS.sliptotalcolumn]  # 伝票内計列のセル範囲を取得。
-			datarange.setDataArray((sum(filter(lambda x: isinstance(x, float), i)),) for i in datarows)  # 伝票内計列を再計算。
-			datarange.setPropertyValue("NumberFormat", self.formatkey)  # 伝票内計列の書式を設定。
-			searchdescriptor = VARS.sheet.createSearchDescriptor()
-			searchdescriptor.setPropertyValue("SearchRegularExpression", True)  # 正規表現を有効にする。
-			searchdescriptor.setSearchString("[^0]")  # 0以外のセルを取得。戻り値はない。	
-			cellranges = datarange.queryContentCells(CellFlags.VALUE).findAll(searchdescriptor)  # 値のあるセルから0以外が入っているセル範囲コレクションを取得。見つからなかった時はNoneが返る。
-			if cellranges:
-				cellranges.setPropertyValue("CellBackColor", commons.COLORS["violet"])  # 不均衡セルをハイライト。	
-			VARS.sheet[VARS.splittedrow:VARS.emptyrow, VARS.splittedcolumn:VARS.emptycolumn].setPropertyValue("NumberFormat", self.formatkey)  # 伝票金額セルの書式を設定。	
+			sheet = VARS.sheet
+			VARS.setSheet(sheet)  # 最終行と列を取得し直す。
+			if VARS.splittedrow<VARS.emptyrow:  # 伝票行がある時のみ。
+				if VARS.splittedcolumn<VARS.emptycolumn:  # 科目列がある時のみ。
+					datarange = sheet[VARS.splittedrow:, VARS.sliptotalcolumn]
+					datarange.clearContents(CellFlags.VALUE)
+					datarange.setPropertyValue("CellBackColor", -1)
+					datarows = sheet[VARS.splittedrow:VARS.emptyrow, VARS.splittedcolumn:VARS.emptycolumn].getDataArray()  # 伝票金額の全データ行を取得。
+					sheet[VARS.splittedrow-1, VARS.splittedcolumn:VARS.emptycolumn].setDataArray(([sum(filter(None, i)) for i in zip(*datarows)],))  # 列ごとの合計を再計算。空セルの空文字を除いて合計する。
+					datarange = sheet[VARS.splittedrow:VARS.emptyrow, VARS.sliptotalcolumn]  # 伝票内計列のセル範囲を取得。
+					datarange.setDataArray((sum(filter(lambda x: isinstance(x, float), i)),) for i in datarows)  # 伝票内計列を再計算。
+					datarange.setPropertyValue("NumberFormat", self.formatkey)  # 伝票内計列の書式を設定。
+					searchdescriptor = sheet.createSearchDescriptor()
+					searchdescriptor.setPropertyValue("SearchRegularExpression", True)  # 正規表現を有効にする。
+					searchdescriptor.setSearchString("[^0]")  # 0以外のセルを取得。戻り値はない。	
+					cellranges = datarange.queryContentCells(CellFlags.VALUE).findAll(searchdescriptor)  # 値のあるセルから0以外が入っているセル範囲コレクションを取得。見つからなかった時はNoneが返る。
+					if cellranges:
+						cellranges.setPropertyValue("CellBackColor", commons.COLORS["violet"])  # 不均衡セルをハイライト。	
+					sheet[VARS.splittedrow:VARS.emptyrow, VARS.splittedcolumn:VARS.emptycolumn].setPropertyValue("NumberFormat", self.formatkey)  # 伝票金額セルの書式を設定。	
+				else:  # 科目列がない時。資産/現金、を先頭列に挿入。
+					sheet[:VARS.kamokurow+1, VARS.splittedcolumn].setDataArray((("賃借対照表",), ("資産の部",), ("現金",)))
+			else:  # 伝票行がない時。
+				sheet[VARS.splittedrow, VARS.daycolumn:VARS.daycolumn+2].setDataArray(((sheet[VARS.settlingdayrows[0], VARS.daycolumn].getValue(), "前期より繰越"),))  # 繰越行を挿入。
 	def disposing(self, eventobject):
 		eventobject.Source.removeModifyListener(self)
 class SlipNoModifyListener(unohelper.Base, XModifyListener):
@@ -115,33 +120,34 @@ class SlipNoModifyListener(unohelper.Base, XModifyListener):
 		if sheet.getName().startswith("振替伝票"):
 			splittedrow = VARS.splittedrow
 			VARS.setSheet(sheet)  # 最終行と列を取得し直す。
-			sheet[VARS.splittedrow:, VARS.daycolumn-1].setPropertyValue("CellBackColor", -1)  # 伝票番号列の背景色をクリア。
-			datarange = VARS.sheet[VARS.splittedrow:VARS.emptyrow, VARS.daycolumn-1]  # 取引日の入力がある行までの伝票番号列のセル範囲を取得。
-			sliprows = list(datarange.getDataArray())  # 伝票番号列の行をリストにして取得。
-			i = ("",)  # 空セルの行。
-			if i in sliprows:  # 空セルの行がある時。
-				deadnogene = (j for j in count(1) if j not in list(chain.from_iterable(sliprows)))  # 空伝票番号のイテレーター。
-				j = 0
-				while i in sliprows[j:]:  # 空セルの行を空伝票番号を入れた行に置き換える。
-					j = sliprows.index(i, j)
-					sliprows[j] = next(deadnogene),
-					j += 1
-				datarange.setDataArray(sliprows)		
-			sliprowsset = set(sliprows)  # 重複行を削除した集合を取得。		
-			duperows = []  # 重複している伝票番号がある行インデックスを取得するリスト。
-			if len(sliprows)>len(sliprowsset):  # 伝票番号列に重複行がある時。空文字の重複でもTrue。
-				for i in sliprowsset:  # 重複は除いて伝票番号をイテレート。
-					if sliprows.count(i)>1:  # 伝票番号が複数ある時。
-						j = 0
-						while i in sliprows[j:]:
-							j = sliprows.index(i, j)
-							duperows.append(j+splittedrow)  # 重複している伝票番号がある行インデックスを取得。
-							j += 1		
-			if duperows:  # 重複している伝票行がある時。
-				cellranges = self.doc.createInstance("com.sun.star.sheet.SheetCellRanges")  # com.sun.star.sheet.SheetCellRangesをインスタンス化。
-				cellranges.addRangeAddresses([sheet[i, VARS.daycolumn-1].getRangeAddress() for i in duperows], False)
-				cellranges.setPropertyValue("CellBackColor", commons.COLORS["silver"])  # 重複伝票番号の背景色を変える。	
-			sheet[VARS.splittedrow:VARS.emptyrow, VARS.daycolumn].setPropertyValue("NumberFormat", self.formatkey)				
+			if splittedrow<VARS.emptyrow:  # 伝票行がある時のみ。
+				sheet[splittedrow:, VARS.daycolumn-1].setPropertyValue("CellBackColor", -1)  # 伝票番号列の背景色をクリア。
+				datarange = sheet[splittedrow:VARS.emptyrow, VARS.daycolumn-1]  # 取引日の入力がある行までの伝票番号列のセル範囲を取得。
+				sliprows = list(datarange.getDataArray())  # 伝票番号列の行をリストにして取得。
+				i = ("",)  # 空セルの行。
+				if i in sliprows:  # 空セルの行がある時。
+					deadnogene = (j for j in count(1) if j not in list(chain.from_iterable(sliprows)))  # 空伝票番号のイテレーター。
+					j = 0
+					while i in sliprows[j:]:  # 空セルの行を空伝票番号を入れた行に置き換える。
+						j = sliprows.index(i, j)
+						sliprows[j] = next(deadnogene),
+						j += 1
+					datarange.setDataArray(sliprows)		
+				sliprowsset = set(sliprows)  # 重複行を削除した集合を取得。		
+				duperows = []  # 重複している伝票番号がある行インデックスを取得するリスト。
+				if len(sliprows)>len(sliprowsset):  # 伝票番号列に重複行がある時。空文字の重複でもTrue。
+					for i in sliprowsset:  # 重複は除いて伝票番号をイテレート。
+						if sliprows.count(i)>1:  # 伝票番号が複数ある時。
+							j = 0
+							while i in sliprows[j:]:
+								j = sliprows.index(i, j)
+								duperows.append(j+splittedrow)  # 重複している伝票番号がある行インデックスを取得。
+								j += 1		
+				if duperows:  # 重複している伝票行がある時。
+					cellranges = self.doc.createInstance("com.sun.star.sheet.SheetCellRanges")  # com.sun.star.sheet.SheetCellRangesをインスタンス化。
+					cellranges.addRangeAddresses([sheet[i, VARS.daycolumn-1].getRangeAddress() for i in duperows], False)
+					cellranges.setPropertyValue("CellBackColor", commons.COLORS["silver"])  # 重複伝票番号の背景色を変える。	
+				sheet[splittedrow:VARS.emptyrow, VARS.daycolumn].setPropertyValue("NumberFormat", self.formatkey)				
 	def disposing(self, eventobject):
 		eventobject.Source.removeModifyListener(self)		
 def mousePressed(enhancedmouseevent, xscriptcontext):  # マウスボタンを押した時。controllerにコンテナウィンドウはない。
@@ -279,7 +285,7 @@ def kurikoshi(xscriptcontext, querybox, txt, startday, endday):
 	if len(columnstotaldic)>0:  # 辞書に要素が残っている時。
 		msg = "新規年度にはない科目がありました。\n\n{}".format("\n".join("{}: {}".format(*i) for i in columnstotaldic.items()))
 		componentwindow = controller.ComponentWindow
-		componentwindow.getToolkit().createMessageBox(componentwindow, WARNINGBOX, MessageBoxButtons.BUTTONS_OK, "WEntryBook", msg).execute()		
+		componentwindow.getToolkit().createMessageBox(componentwindow, WARNINGBOX, MessageBoxButtons.BUTTONS_OK, "WEntryBook", msg).execute()	
 def createFinancialStatements(xscriptcontext, txt):  # 決算書作成。
 	newdoc = xscriptcontext.getDesktop().loadComponentFromURL("private:factory/scalc", "_blank", 0, ())  # 新規ドキュメントの取得。	
 	indicator = newdoc.getCurrentController().getFrame().createStatusIndicator()  # 新規ドキュメントのステータスインディケーターを取得。				
@@ -302,8 +308,8 @@ def createFinancialStatements(xscriptcontext, txt):  # 決算書作成。
 	kamoku = ""  # 科目のキャッシュ。
 	kubun = ""  # 区分のキャッシュ。賃借対照表作成用。
 	flg = True if "繰越" in datarows[VARS.splittedrow][VARS.daycolumn+1] else False  # 繰越フラグ。繰越行がないときは期首データはないということ。
-	indicator.setText("各科目を処理中")
 	for i in zip(*headerrows, *[i[VARS.splittedcolumn:] for i in datarows[VARS.splittedrow-1:]]):  # 列インデックス、区分、科目、補助科目、列合計、固定列以下の列の要素、をイテレート。
+		indicator.setText("{:　>10}を処理中".format(i[2]))  # 全角スペースで埋める。
 		indicator.setValue(i[0])
 		if kamoku!=i[2]:  # 科目が切り替わった時。
 			sums = list(map(sum, (bkarikata, bkashikata, karikata, kashikata, ekarikata, ekashikata)))  # 各リストの合計のリストを取得。
@@ -354,14 +360,17 @@ def createFinancialStatements(xscriptcontext, txt):  # 決算書作成。
 	indicator.end()  # reset()の前にend()しておかないと元に戻らない。
 	indicator.reset()  # ここでリセットしておかないと例外が発生した時にリセットする機会がない。	
 def createProfitAndLossCreator(xscriptcontext, datetxts):	# 損益通算書の作成。
-	expensesdatarows = []  # 経費のデータ行を取得するリスト。
+	expensesorder = "租税公課", "荷造運賃", "水道光熱費", "旅費交通費", "通信費", "広告宣伝費", "接待交際費",\
+					"損害保険料", "修繕費", "消耗品費", "減価償却費", "福利厚生費", "給料賃金", "外注工賃",\
+					"利子割引料", "地代家賃", "貸倒金", "雑費"  # 印字されている経費の科目名の順。
+	expensesvaluedic = {}  # キー: 経費の科目名, 値: 金額。
 	kamokuvaluedic = {}  # キー: 科目、値: 金額、の辞書。
 	def addPL(kubun, kamoku, sums):
 		if kubun=="経費":  # 借方科目。
 			if kamoku in ("専従者給与", "貸倒引当金繰入", "期首商品棚卸高", "仕入金額"):
 				kamokuvaluedic[kamoku] = sums[5]
 			else:  # その他の経費。
-				expensesdatarows.append(("経費", kamoku, "", sums[5]))
+				expensesvaluedic[kamoku] = sum[5]
 		elif kubun=="収益":  # 貸方科目。"売上金額", "貸倒引当金繰戻", "期末商品棚卸高"。これ以外の収益は想定していない。
 			kamokuvaluedic[kamoku] = sums[4]
 	def createPL(newdoc, pagewidth):
@@ -381,12 +390,19 @@ def createProfitAndLossCreator(xscriptcontext, datetxts):	# 損益通算書の�
 		newdatarows.append(("", "差引原価", "", newdatarows[-2][-1]-newdatarows[-1][-1]))
 		grossprofit = newdatarows[3][-1] - newdatarows[-1][-1]
 		newdatarows.append(("差引金額", "", "", grossprofit))
-		expensestotal = sum(i[-1] for i in expensesdatarows)
+		expensestotal = sum(expensesvaluedic.values())  # 経費の合計を取得。
 		profit = grossprofit - expensestotal
+		i = "租税公課"  # 経費の先頭科目名。
+		expensesdatarows = [("経費", i, "", expensesvaluedic.pop(i, 0))]
+		expensesdatarows.extend(("", i, "", expensesvaluedic.pop(i, 0)) for i in expensesorder[1:])
+		lastexpensesrow = expensesdatarows.pop()  # 最後の「雑費」だけよけておく。
+		if expensesvaluedic:  # まだ項目が残っている時。
+			expensesdatarows.extend(("", k, "", v) for k, v in expensesvaluedic.items())
+		expensesdatarows.append(lastexpensesrow)	
 		newdatarows.extend(expensesdatarows)
 		newdatarows.append(("", "計", "", expensestotal))
 		newdatarows.append(("差引金額", "", "", profit))
-		newdatarows.append(("各種引当金・準備金等", "繰戻額等", "貸倒引当金", kamokuvaluedic.get("貸倒引当金繰戻", 0)))
+		newdatarows.append(("各種引当金\n・準備金等", "繰戻額等", "貸倒引当金", kamokuvaluedic.get("貸倒引当金繰戻", 0)))
 		fb = newdatarows[-1][-1]
 		newdatarows.append(("", "", "計", fb))
 		newdatarows.append(("", "繰入額等", "専従者給与", kamokuvaluedic.get("専従者給与", 0)))
@@ -415,24 +431,24 @@ def createProfitAndLossCreator(xscriptcontext, datetxts):	# 損益通算書の�
 		newcontroller.select(selection)		
 		datarange = newsheet[:rowscount, 3]	
 		datarange.setPropertyValue("NumberFormat", commons.formatkeyCreator(newdoc)("#,##0;[BLUE]-#,##0"))	
-		cellrangeobjects = newsheet[0, 0], newsheet[2, 0], newsheet[expensesendrow+1, 0]
+		cellrangeobjects = newsheet[0, 0], newsheet[2, 0], newsheet[2, 3]  # 損益計算書、科目、金額、のセル。
 		setCellRangeProperty(newdoc, (i.getRangeAddress() for i in cellrangeobjects), lambda x: x.setPropertyValue("HoriJustify", CENTER))
-		cellrangeobjects = newsheet[4, 0], newsheet[10, 0], newsheet[expensesendrow+1, 0]
-		setCellRangeProperty(newdoc, (i.getRangeAddress() for i in cellrangeobjects), lambda x: x.setPropertyValues(("HoriJustify", "Orientation"), (CENTER, STACKED)))	
-		cellrangeobjects = newsheet[expensesendrow+1, 1], newsheet[expensesendrow+3, 1]
+		cellrangeobjects = newsheet[4, 0], newsheet[10, 0]  # 売上原価、経費、のセル。
+		setCellRangeProperty(newdoc, (i.getRangeAddress() for i in cellrangeobjects), lambda x: x.setPropertyValues(("VertJustify", "HoriJustify", "Orientation"), (CellVertJustify2.CENTER, CENTER, STACKED)))	
+		cellrangeobjects = newsheet[expensesendrow+1, 0], newsheet[expensesendrow+1, 1], newsheet[expensesendrow+3, 1]  # 各種引当金・準備金等、繰戻額等、繰入額等、のセル。
 		setCellRangeProperty(newdoc, (i.getRangeAddress() for i in cellrangeobjects), lambda x: x.setPropertyValue("VertJustify", CellVertJustify2.CENTER))
-		newsheet[1, 3].setPropertyValue("HoriJustify", RIGHT)
+		cellrangeobjects = newsheet[1, 3], newsheet[6, 1], newsheet[8, 1], newsheet[9, 0], newsheet[expensesendrow-1, 1], newsheet[expensesendrow, 0], newsheet[expensesendrow+2, 2], newsheet[expensesendrow+5, 2]  # 現在日、差し引き、計、のセル。
+		setCellRangeProperty(newdoc, (i.getRangeAddress() for i in cellrangeobjects), lambda x: x.setPropertyValue("HoriJustify", RIGHT))
 		searchdescriptor = newsheet.createSearchDescriptor()
 		searchdescriptor.setSearchString(0)  # 0のセルを取得。戻り値はない。	
 		cellranges = datarange.findAll(searchdescriptor)  # 値のあるセルから0以外が入っているセル範囲コレクションを取得。見つからなかった時はNoneが返る。
 		if cellranges:
 			cellranges.clearContents(CellFlags.VALUE)  # 0のセルを空セルにする。	
-		newkingakuwidth = 5000 	
 		columns = newsheet.getColumns()
-		columns[0].setPropertyValue("Width", 1000) 
+		columns[0].setPropertyValue("Width", 2000) 
 		columns[1].setPropertyValue("Width", 2200) 
 		columns[2].setPropertyValue("Width", 3500) 
-		columns[3].setPropertyValue("Width", newkingakuwidth)  # 金額列の列幅を設定。
+		columns[3].setPropertyValue("Width", 5000)  # 金額列の列幅を設定。
 	return addPL, createPL
 def createTrialBalanceCreator(xscriptcontext, datetxts):  # 試算表の作成。
 	datetxtforsheet, presentdatetxt, dummy = datetxts
@@ -577,9 +593,11 @@ def createShiwakeCho(xscriptcontext, txt):
 				("日付", "借方科目", "借方金額", "貸方科目", "貸方金額", "摘要"),\
 				("伝票番号", "借方補助科目", "", "貸方補助科目", "", "")]  # 新規シートのヘッダー行。
 	slipstartrows = []  # 新規シートの伝票開始行インデックスのリスト。
-	datevalue = ""  # 伝票の日付シリアル値。		
-	indicator.setText("各伝票を処理中")
+	datevalue = ""  # 伝票の日付シリアル値。	
+	startrowi = VARS.splittedrow - 1
+	totalslipcount = VARS.emptyrow - VARS.splittedrow
 	for i, datarow in enumerate(datarows[VARS.splittedrow:], start=VARS.splittedrow):  # 伝票行を行インデックスと共にイテレート。
+		indicator.setText("伝票処理 {:>4}/{}".format(i-startrowi, totalslipcount))	
 		indicator.setValue(i)
 		slipstartrows.append(len(newdatarows))  # 新規シートの伝票開始行インデックスを取得。
 		datevalue = "" if datevalue==datarow[daycolumn] else datarow[daycolumn]  # 前の伝票と日付が異なる時のみ日付を表示する。
@@ -633,6 +651,7 @@ def createHojoMotoCho(xscriptcontext, txt, docname, hojokamokuindexgenefunc):
 	createHojoSheet = createHojoSheetCreator(datetxtforsheet, headerrows, datarows, createNewSheet)	
 	indicator.setText("各科目を処理中")
 	for k in hojokamokuindexgenefunc(headerrows):
+		indicator.setText("{:　>10}を処理中".format(headerrows[VARS.kamokurow][k]))
 		indicator.setValue(k)
 		createHojoSheet(k)
 	if len(newdoc.getSheets())==1:  # シートが増えていない時。
@@ -673,8 +692,8 @@ def createMotoCho(xscriptcontext, txt, docname, kozakamokunamegenefunc):  # xscr
 		return
 	createNewSheet = createNewSheetCreator(newdoc, newkamokucolumnidxes, newkingakucolumns, newheadermergecolumns, newtekiyocolumn)
 	createKamokuSheet = createKamokuSheetCreator(datetxtforsheet, headerrows, datarows, createNewSheet)
-	indicator.setText("各科目を処理中")
 	for i, kozakamokuname in enumerate(kozakamokunamegenefunc(datarows), start=VARS.splittedcolumn):  # 口座科目名をイテレート。科目行の空セルでない値のみイテレート。
+		indicator.setText("{:　>10}を処理中".format(kozakamokuname))
 		indicator.setValue(i)
 		createKamokuSheet(kozakamokuname)
 	if len(newdoc.getSheets())==1:  # シートが増えていない時。
@@ -870,37 +889,40 @@ def setCellRangeProperty(doc, rangeaddresses, setProperty):
 	cellranges.addRangeAddresses(rangeaddresses, False)	
 	setProperty(cellranges)
 def getDataRows(xscriptcontext):
-	ctx = xscriptcontext.getComponentContext()  # コンポーネントコンテクストの取得。
-	smgr = ctx.getServiceManager()  # サービスマネージャーの取得。
-	dispatcher = smgr.createInstanceWithContext("com.sun.star.frame.DispatchHelper", ctx)
-	doc = xscriptcontext.getDocument()
-	controller = doc.getCurrentController()	
-	selection = doc.getCurrentSelection()  # 選択範囲をここで保存しておく。
-	controller.select(VARS.sheet[VARS.splittedrow:, :])  # ソートするセル範囲を選択。固定行以下すべてを選択。
-	props = PropertyValue(Name="Col1", Value=VARS.daycolumn+1),  # 日付順にソート。Col1の番号は優先順位。Valueはインデックス+1。 
-	dispatcher.executeDispatch(controller.getFrame(), ".uno:DataSort", "", 0, props)  # ディスパッチコマンドでソート。
-	controller.select(selection)  # 元のセルを選択し直す。							
-	datarows = VARS.sheet[:VARS.emptyrow, :VARS.emptycolumn].getDataArray()  # 全データ行を取得。		
-	msg = ""
-	if not datarows[VARS.kamokurow][VARS.splittedcolumn]:  # 科目行先頭列のセルがTrueでない時。
-		msg = "科目行の先頭セルには科目名が入っていないといけません。"	
-	else:
-		gene = zip(*datarows[VARS.splittedrow:])  # 固定列行以下の列のデータのイテレーター。
-		if any(filter(None, next(gene))):  # 伝票内計が0か空セル以外の値をイテレート。
-			msg = "貸方と借方が一致しない行があります。"
-		elif "" in next(gene):  # 伝票番号列に空セルがある時。
-			msg = "伝票番号のない行があります。"
+	if VARS.splittedrow<VARS.emptyrow:  # 伝票行がある時のみ。
+		ctx = xscriptcontext.getComponentContext()  # コンポーネントコンテクストの取得。
+		smgr = ctx.getServiceManager()  # サービスマネージャーの取得。
+		dispatcher = smgr.createInstanceWithContext("com.sun.star.frame.DispatchHelper", ctx)
+		doc = xscriptcontext.getDocument()
+		controller = doc.getCurrentController()	
+		selection = doc.getCurrentSelection()  # 選択範囲をここで保存しておく。
+		controller.select(VARS.sheet[VARS.splittedrow:, :])  # ソートするセル範囲を選択。固定行以下すべてを選択。
+		props = PropertyValue(Name="Col1", Value=VARS.daycolumn+1),  # 日付順にソート。Col1の番号は優先順位。Valueはインデックス+1。 
+		dispatcher.executeDispatch(controller.getFrame(), ".uno:DataSort", "", 0, props)  # ディスパッチコマンドでソート。
+		controller.select(selection)  # 元のセルを選択し直す。							
+		datarows = VARS.sheet[:VARS.emptyrow, :VARS.emptycolumn].getDataArray()  # 全データ行を取得。		
+		msg = ""
+		if not datarows[VARS.kamokurow][VARS.splittedcolumn]:  # 科目行先頭列のセルがTrueでない時。
+			msg = "科目行の先頭セルには科目名が入っていないといけません。"	
 		else:
-			days = next(gene)  # 伝票の取引日列のタプルを取得。
-			if "" in days:  # 取引日列に空セルにある時。
-				msg = "取引日のない行があります。"
+			gene = zip(*datarows[VARS.splittedrow:])  # 固定列行以下の列のデータのイテレーター。
+			if any(filter(None, next(gene))):  # 伝票内計が0か空セル以外の値をイテレート。
+				msg = "貸方と借方が一致しない行があります。"
+			elif "" in next(gene):  # 伝票番号列に空セルがある時。
+				msg = "伝票番号のない行があります。"
 			else:
-				dates = getDateSection()  # 期首日と期末日を取得。
-				if all(dates):  # 決算日がある時。
-					functionaccess = smgr.createInstanceWithContext("com.sun.star.sheet.FunctionAccess", ctx)  # シート関数利用のため。	
-					sday, eday = [functionaccess.callFunction("DATE", (i.year, i.month, i.day)) for i in dates]
-					if days[0]<sday or eday<days[-1]:
-						msg = "会計年度外の日付の行があります。"
+				days = next(gene)  # 伝票の取引日列のタプルを取得。
+				if "" in days:  # 取引日列に空セルにある時。
+					msg = "取引日のない行があります。"
+				else:
+					dates = getDateSection()  # 期首日と期末日を取得。
+					if all(dates):  # 決算日がある時。
+						functionaccess = smgr.createInstanceWithContext("com.sun.star.sheet.FunctionAccess", ctx)  # シート関数利用のため。	
+						sday, eday = [functionaccess.callFunction("DATE", (i.year, i.month, i.day)) for i in dates]
+						if days[0]<sday or eday<days[-1]:
+							msg = "会計年度外の日付の行があります。"
+	else:
+		msg = "処理する伝票行がありません。"
 	if msg:
 		commons.showErrorMessageBox(controller, "{}\n処理を中止します。".format(msg))	
 		return ("",)*2		
@@ -957,11 +979,12 @@ def notifyContextMenuExecute(contextmenuexecuteevent, xscriptcontext):  # 右ク
 				addMenuentry("ActionTrigger", {"CommandURL": ".uno:DeleteNote"})	
 				addMenuentry("ActionTrigger", {"CommandURL": ".uno:ShowNote"})			
 				addMenuentry("ActionTrigger", {"CommandURL": ".uno:HideNote"})							
-		elif c==VARS.daycolumn+1:  # 摘要列の時。
+		elif r>=VARS.splittedrow and c==VARS.daycolumn+1:  # 摘要列の時。
 			if selection.supportsService("com.sun.star.sheet.SheetCell"):  # 単独セルの時のみ。
 				addMenuentry("ActionTrigger", {"Text": "伝票履歴", "CommandURL": baseurl.format("entry6")}) 
 				addMenuentry("ActionTriggerSeparator", {"SeparatorType": ActionTriggerSeparatorType.LINE})
-			addMenuentry("ActionTrigger", {"Text": "伝票履歴に追加", "CommandURL": baseurl.format("entry7")}) 
+			if VARS.splittedrow<VARS.emptyrow:  # 伝票行がある時のみ。
+				addMenuentry("ActionTrigger", {"Text": "伝票履歴に追加", "CommandURL": baseurl.format("entry7")}) 
 		addMenuentry("ActionTriggerSeparator", {"SeparatorType": ActionTriggerSeparatorType.LINE})
 		commons.cutcopypasteMenuEntries(addMenuentry)
 		addMenuentry("ActionTriggerSeparator", {"SeparatorType": ActionTriggerSeparatorType.LINE})
