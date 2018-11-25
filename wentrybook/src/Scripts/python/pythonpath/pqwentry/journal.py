@@ -73,16 +73,21 @@ class SettlingDayModifyListener(unohelper.Base, XModifyListener):
 					self.showErrorMessageBox("期首日が期末日より古いので訂正してください。")	
 				return
 			elif sdatevalue>0:  # 期首日のみの時。
+				eventobject.Source.removeModifyListener(self)  # WindowsではModifyListenerを外しておかないとクラッシュする。
 				edaycell.setValue(self.functionaccess.callFunction("EDATE", (sdatevalue, 12))-1)  # 1年後を期末日にする。
+				eventobject.Source.addModifyListener(self)  # ModifyListenerを付け直す。
 			elif edatevalue>0:  # 期末日のみの時。
+				eventobject.Source.removeModifyListener(self)  # WindowsではModifyListenerを外しておかないとクラッシュする。
 				sdaycell.setValue(self.functionaccess.callFunction("EDATE", (edatevalue, -12))+1)  # 1年前を期首日にする。
+				eventobject.Source.addModifyListener(self)  # ModifyListenerを付け直す。
 			self.setProperty(sdaycell)
 			self.setProperty(edaycell)
 	def disposing(self, eventobject):
 		eventobject.Source.removeModifyListener(self)
-class ValueModifyListener(unohelper.Base, XModifyListener):
-	def __init__(self, xscriptcontext):
+class ValueModifyListener(unohelper.Base, XModifyListener):  # WindowsではModifyListenerからModifyListenerを発火させるとクラッシュする。
+	def __init__(self, xscriptcontext, slipnosubjectmodifylistener):
 		self.formatkey = commons.formatkeyCreator(xscriptcontext.getDocument())("#,##0;[BLUE]-#,##0")
+		self.slipnosubjectmodifylistener = slipnosubjectmodifylistener
 	def modified(self, eventobject):  # 固定行以下固定列右のセルが変化すると発火するメソッド。サブジェクトのどこが変化したかはわからない。eventobject.Sourceは対象全シートのセル範囲コレクション。
 		if VARS.sheet.getName().startswith("振替伝票"):
 			sheet = VARS.sheet
@@ -107,7 +112,10 @@ class ValueModifyListener(unohelper.Base, XModifyListener):
 				else:  # 科目列がない時。資産/現金、を先頭列に挿入。
 					sheet[:VARS.kamokurow+1, VARS.splittedcolumn].setDataArray((("賃借対照表",), ("資産の部",), ("現金",)))
 			else:  # 伝票行がない時。
+				subj, listener = self.slipnosubjectmodifylistener
+				subj.removeModifyListener(listener)  # WindowsではModifyListenerを外しておかないとクラッシュする。
 				sheet[VARS.splittedrow, VARS.daycolumn:VARS.daycolumn+2].setDataArray(((sheet[VARS.settlingdayrows[0], VARS.daycolumn].getValue(), "前期より繰越"),))  # 繰越行を挿入。
+				subj.addModifyListener(listener)  # ModifyListenerを付け直す。
 	def disposing(self, eventobject):
 		eventobject.Source.removeModifyListener(self)
 class SlipNoModifyListener(unohelper.Base, XModifyListener):
@@ -132,7 +140,9 @@ class SlipNoModifyListener(unohelper.Base, XModifyListener):
 						j = sliprows.index(i, j)
 						sliprows[j] = next(deadnogene),
 						j += 1
+					eventobject.Source.removeModifyListener(self)  # WindowsではModifyListenerを外しておかないとクラッシュする。	
 					datarange.setDataArray(sliprows)		
+					eventobject.Source.addModifyListener(self)  # ModifyListenerを付け直す。
 				sliprowsset = set(sliprows)  # 重複行を削除した集合を取得。		
 				duperows = []  # 重複している伝票番号がある行インデックスを取得するリスト。
 				if len(sliprows)>len(sliprowsset):  # 伝票番号列に重複行がある時。空文字の重複でもTrue。
@@ -147,7 +157,7 @@ class SlipNoModifyListener(unohelper.Base, XModifyListener):
 					cellranges = self.doc.createInstance("com.sun.star.sheet.SheetCellRanges")  # com.sun.star.sheet.SheetCellRangesをインスタンス化。
 					cellranges.addRangeAddresses([sheet[i, VARS.daycolumn-1].getRangeAddress() for i in duperows], False)
 					cellranges.setPropertyValue("CellBackColor", commons.COLORS["silver"])  # 重複伝票番号の背景色を変える。	
-				sheet[splittedrow:VARS.emptyrow, VARS.daycolumn].setPropertyValue("NumberFormat", self.formatkey)				
+				sheet[splittedrow:VARS.emptyrow, VARS.daycolumn].setPropertyValue("NumberFormat", self.formatkey)			
 	def disposing(self, eventobject):
 		eventobject.Source.removeModifyListener(self)		
 def mousePressed(enhancedmouseevent, xscriptcontext):  # マウスボタンを押した時。controllerにコンテナウィンドウはない。
@@ -240,8 +250,11 @@ def kurikoshi(xscriptcontext, querybox, txt, startday, endday):
 			newheaderrowsgene = zip(*generateHeaderRows(newdatarows[:VARS.kamokurow+2])[1:])  # (区分行、科目行、補助科目行)をイテレートする。		
 			if newsheet[splittedrow, daycolumn+1].getString()!="前期より繰越":  # 先頭行が繰越伝票でない時。
 				newsheet.insertCells(newsheet[splittedrow, :].getRangeAddress(), insert_rows)  # 空行を挿入。
-				documentevent.addModifyListener(doc, [newsheet[splittedrow, slipnocolumn:tekiyocolumn].getRangeAddress()], SlipNoModifyListener(xscriptcontext))  # 新規行にModifyListenerを付ける。
-				documentevent.addModifyListener(doc, [newsheet[splittedrow, splittedcolumn:].getRangeAddress()], ValueModifyListener(xscriptcontext))  # 新規行にModifyListenerを付ける。  
+				
+				slipnosubjectmodifylistener = documentevent.addModifyListener(doc, [newsheet[splittedrow, slipnocolumn:tekiyocolumn].getRangeAddress()], SlipNoModifyListener(xscriptcontext))  # 新規行にModifyListenerを付ける。
+				documentevent.addModifyListener(doc, [newsheet[splittedrow, splittedcolumn:].getRangeAddress()], ValueModifyListener(xscriptcontext, slipnosubjectmodifylistener))  # 新規行にModifyListenerを付ける。  
+
+	
 	if not newsheet:  # まだ次期シートが取得できていない時。
 		sdate, edate = date(*map(int, startday.split("-"))), date(*map(int, endday.split("-")))  # 現シートの期首日と期末日のdateオブジェクトを取得。
 		newsdate = edate + timedelta(days=1)  # 次期期首日のdateオブジェクトを取得。
@@ -255,8 +268,11 @@ def kurikoshi(xscriptcontext, querybox, txt, startday, endday):
 		newsdaycell.setFormula(newsdate.isoformat())  # 新規期首日を代入。
 		newedaycell.setFormula(newedate.isoformat())  # 新規期末日を代入。				
 		documentevent.addModifyListener(doc, (i.getRangeAddress() for i in (newsdaycell, newedaycell)), SettlingDayModifyListener(xscriptcontext))  # 次期シートにModifyLsitenerの追加。
-		documentevent.addModifyListener(doc, [newsheet[splittedrow:, slipnocolumn:tekiyocolumn].getRangeAddress()], SlipNoModifyListener(xscriptcontext))  # 次期シートにModifyLsitenerの追加。
-		documentevent.addModifyListener(doc, [newsheet[splittedrow:, splittedcolumn:].getRangeAddress()], ValueModifyListener(xscriptcontext))  # 次期シートにModifyLsitenerの追加。
+
+		slipnosubjectmodifylistener = documentevent.addModifyListener(doc, [newsheet[splittedrow:, slipnocolumn:tekiyocolumn].getRangeAddress()], SlipNoModifyListener(xscriptcontext))  # 次期シートにModifyLsitenerの追加。
+		documentevent.addModifyListener(doc, [newsheet[splittedrow:, splittedcolumn:].getRangeAddress()], ValueModifyListener(xscriptcontext, slipnosubjectmodifylistener))  # 次期シートにModifyLsitenerの追加。
+
+		
 		newheaderrowsgene = zip(*headerrows[1:])  # (区分行、科目行、補助科目行)をイテレートする。			
 	indicator.start("次期繰越金を算出", len(datarows[0]))		
 	columnstotaldic = {i[:-1]: i[-1] for i in zip(*headerrows[1:], datarows[VARS.splittedrow-1][VARS.splittedcolumn:]) if i[-1]}  # キー: (区分、科目、補助科目)のタプル、値: 各列計、の辞書を取得。各列0が0や空セルのものは取得しない。
@@ -1012,6 +1028,7 @@ def notifyContextMenuExecute(contextmenuexecuteevent, xscriptcontext):  # 右ク
 				addMenuentry("ActionTrigger", {"CommandURL": ".uno:Group"})	
 				addMenuentry("ActionTrigger", {"CommandURL": ".uno:Ungroup"})	
 	elif contextmenuname=="sheettab":  # シートタブの時。
+		addMenuentry("ActionTrigger", {"CommandURL": ".uno:RenameTable"})
 		addMenuentry("ActionTrigger", {"CommandURL": ".uno:Move"})
 	return EXECUTE_MODIFIED  # このContextMenuInterceptorでコンテクストメニューのカスタマイズを終わらす。	
 def contextMenuEntries(entrynum, xscriptcontext):  # コンテクストメニュー番号の処理を振り分ける。引数でこれ以上に取得できる情報はない。		
