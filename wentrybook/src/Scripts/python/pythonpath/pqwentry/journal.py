@@ -974,26 +974,33 @@ def notifyContextMenuExecute(contextmenuexecuteevent, xscriptcontext):  # 右ク
 	sheet = VARS.sheet
 	if contextmenuname=="cell":  # セルのとき。セル範囲も含む。
 		if VARS.splittedcolumn<=c<VARS.emptycolumn:  # 科目行か補助科目行に値がある列の時。
+			datarows = sheet[VARS.kamokurow:VARS.kamokurow+2, c].getDataArray()  # 科目行と補助科目行を取得。
+			kamoku = datarows[0][0]
+			hojokamoku = datarows[1][0]			
 			if selection.supportsService("com.sun.star.sheet.SheetCell"):  # 単独セルの時のみ。
-				datarows = sheet[VARS.kamokurow:VARS.kamokurow+2, c].getDataArray()  # 科目行と補助科目行を取得。
-				kamoku = datarows[0][0]
-				hojokamoku = datarows[1][0]
 				if r==VARS.kamokurow and kamoku:  # 科目行かつ科目行に値があるとき。
 					addMenuentry("ActionTrigger", {"Text": "{}の勘定元帳生成".format(kamoku), "CommandURL": baseurl.format("entry2")}) 
 				elif r==VARS.kamokurow+1 and hojokamoku:  # 補助科目行かつ補助科目行に値があるとき。:
-					addMenuentry("ActionTrigger", {"Text": "{}の補助元帳生成".format(hojokamoku), "CommandURL": baseurl.format("entry3")}) 
+					addMenuentry("ActionTrigger", {"Text": "{}の補助元帳生成".format(hojokamoku), "CommandURL": baseurl.format("entry3")}) 	
 				elif VARS.splittedrow<=r<=VARS.emptyrow:  # 取引日列が入力済で科目行か補助科目行に値がある列のセルの時。
 					if sheet[r, VARS.sliptotalcolumn].getValue()!=0:  # 伝票内計が0でない時のみ。空セルも0として扱われる。
 						txt = hojokamoku if hojokamoku else kamoku  # 補助科目行に値がある時は補助科目行、ないときは科目行の値を使う。
-						addMenuentry("ActionTrigger", {"Text": "{}で決済".format(txt), "CommandURL": baseurl.format("entry5")}) 
+						addMenuentry("ActionTrigger", {"Text": "「{}」で決済".format(txt), "CommandURL": baseurl.format("entry5")}) 
 						if txt!="現金":  # 現金列でない時のみ。
-							addMenuentry("ActionTrigger", {"Text": "現金で決済", "CommandURL": baseurl.format("entry4")}) 
+							addMenuentry("ActionTrigger", {"Text": "「現金」で決済", "CommandURL": baseurl.format("entry4")}) 
 				addMenuentry("ActionTriggerSeparator", {"SeparatorType": ActionTriggerSeparatorType.LINE})
 				addMenuentry("ActionTrigger", {"CommandURL": ".uno:InsertAnnotation"})	
 				addMenuentry("ActionTrigger", {"CommandURL": ".uno:EditAnnotation"})	
 				addMenuentry("ActionTrigger", {"CommandURL": ".uno:DeleteNote"})	
 				addMenuentry("ActionTrigger", {"CommandURL": ".uno:ShowNote"})			
-				addMenuentry("ActionTrigger", {"CommandURL": ".uno:HideNote"})							
+				addMenuentry("ActionTrigger", {"CommandURL": ".uno:HideNote"})		
+			else:  # 複数セルを選択している時。
+				if len(selection.getColumns())==1:  # 選択列が1つだけの時。
+					if VARS.splittedrow<=r<=VARS.emptyrow:  # 左上セルの行の取引日列が入力済の時。
+						txt = hojokamoku if hojokamoku else kamoku  # 補助科目行に値がある時は補助科目行、ないときは科目行の値を使う。
+						addMenuentry("ActionTrigger", {"Text": "選択伝票を「{}」で決済".format(txt), "CommandURL": baseurl.format("entry8")}) 
+						if txt!="現金":  # 現金列でない時のみ。
+							addMenuentry("ActionTrigger", {"Text": "選択伝票を「現金」で決済", "CommandURL": baseurl.format("entry9")}) 			
 		elif r>=VARS.splittedrow and c==VARS.daycolumn+1:  # 摘要列の時。
 			if selection.supportsService("com.sun.star.sheet.SheetCell"):  # 単独セルの時のみ。
 				addMenuentry("ActionTrigger", {"Text": "伝票履歴", "CommandURL": baseurl.format("entry6")}) 
@@ -1095,6 +1102,21 @@ def contextMenuEntries(entrynum, xscriptcontext):  # コンテクストメニュ
 			else:
 				griddatarows = newgriddatarows
 			dialogcommons.saveData(doc, "GridDatarows_{}".format(dialogtitle), griddatarows)
+	elif entrynum==8:  # 選択伝票を決済。選択列は1個のみ。選択範囲左上セルは固定行以下。
+		rangeaddress = selection.getRangeAddress()
+		settleMultipleSlips(rangeaddress, rangeaddress.StartColumn)
+	elif entrynum==9:  # 選択伝票を現金で決済	。選択列は1個のみ。選択範囲左上セルは固定行以下。
+		rangeaddress = selection.getRangeAddress()
+		datarow = sheet[VARS.kamokurow, :VARS.emptycolumn].getDataArray()[0]  # 科目行を取得。
+		settleMultipleSlips(rangeaddress, datarow.index("現金", VARS.splittedcolumn))
+def settleMultipleSlips(rangeaddress, c):		
+	sheet = VARS.sheet
+	edgerow = rangeaddress.EndRow + 1
+	newedgerow = VARS.emptyrow if edgerow>VARS.emptyrow else edgerow
+	sliptotalcolumn = VARS.sliptotalcolumn
+	for i in range(rangeaddress.StartRow, newedgerow):  # 各行インデックスについて。
+		if sheet[i, sliptotalcolumn].getValue()!=0:  # 伝票内計が0でない時のみ。空セルも0として扱われる。
+			settle(sheet[i, c])	
 def settle(cell):
 		val = (cell.getValue()-VARS.sheet[cell.getCellAddress().Row, VARS.sliptotalcolumn].getValue()) or ""  # 0の時は空文字を代入。
 		cell.setDataArray(((val,),))  # 文字列でも数値でも代入できるのでsetDataArray()を使って代入。
