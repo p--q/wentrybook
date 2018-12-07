@@ -254,9 +254,9 @@ def kurikoshi(xscriptcontext, querybox, txt, startday, endday):
 				slipnosubjectmodifylistener = documentevent.addModifyListener(doc, [newsheet[splittedrow, slipnocolumn:tekiyocolumn].getRangeAddress()], SlipNoModifyListener(xscriptcontext))  # 新規行にModifyListenerを付ける。
 				documentevent.addModifyListener(doc, [newsheet[splittedrow, splittedcolumn:].getRangeAddress()], ValueModifyListener(xscriptcontext, slipnosubjectmodifylistener))  # 新規行にModifyListenerを付ける。  
 	if not newsheet:  # まだ次期シートが取得できていない時。
-		sdate, edate = date(*map(int, startday.split("-"))), date(*map(int, endday.split("-")))  # 現シートの期首日と期末日のdateオブジェクトを取得。
-		newsdate = edate + timedelta(days=1)  # 次期期首日のdateオブジェクトを取得。
-		newedate = edate + (edate - sdate)  # 次期期末日のdateオブジェクトを取得。dateオブジェクトの計算結果を加算しないとエラーになる。		
+		edate = date(*map(int, endday.split("-")))  # 現シートの期末日のdateオブジェクトを取得。
+		newsdate = edate + timedelta(days=1)  # 次期期首日のdateオブジェクトを取得。		
+		newedate = date(edate.year+1, edate.month, edate.day)  # 次期期末日のdateオブジェクトを取得。期間の差で取得するとうるう年を考慮する必要がある。
 		newsheetname = "振替伝票_{}決算".format(newedate.isoformat().replace("-", ""))
 		sheets.copyByName(sheetname, newsheetname, newi)  # 現シートをコピーして次期シートにする。
 		newsheet = sheets[newsheetname]
