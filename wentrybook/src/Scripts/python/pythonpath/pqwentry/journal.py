@@ -256,7 +256,7 @@ def kurikoshi(xscriptcontext, querybox, txt, startday, endday):
 	if not newsheet:  # まだ次期シートが取得できていない時。
 		sdate, edate = date(*map(int, startday.split("-"))), date(*map(int, endday.split("-")))  # 現シートの期首日と期末日のdateオブジェクトを取得。
 		newsdate = edate + timedelta(days=1)  # 次期期首日のdateオブジェクトを取得。
-		newedate = newsdate + (edate - sdate)  # 次期期末日のdateオブジェクトを取得。dateオブジェクトの計算結果を加算しないとエラーになる。		
+		newedate = edate + (edate - sdate)  # 次期期末日のdateオブジェクトを取得。dateオブジェクトの計算結果を加算しないとエラーになる。		
 		newsheetname = "振替伝票_{}決算".format(newedate.isoformat().replace("-", ""))
 		sheets.copyByName(sheetname, newsheetname, newi)  # 現シートをコピーして次期シートにする。
 		newsheet = sheets[newsheetname]
