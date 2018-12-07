@@ -827,6 +827,7 @@ def createKamokuSheetCreator(settlingdaytxt, headerrows, datarows, createNewShee
 						if j[4]>0:  # 金額が正は借方。補助科目名も使う。
 							karikatas.extend([j[3], j[4]])	
 						else:  # 金額が負は貸方。
+							karikatas.extend([j[3], ""])	
 							kashikatas.extend(["", -j[4]])					
 						zandaka += j[4]*sign  # 残高を計算。
 						zandakas = "", zandaka

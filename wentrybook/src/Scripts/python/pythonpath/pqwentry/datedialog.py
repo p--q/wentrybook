@@ -82,34 +82,33 @@ def createDialog(enhancedmouseevent, xscriptcontext, dialogtitle, formatstring=N
 		datetxt = selection.getString()  # 日付文字列を取得。2018-8-5などを想定。
 		centerdate = date(*map(int, datetxt.split(datetxt[4])))  # 日付文字列をdateオブジェクトにして中央にする。
 		col0[todayindex] = "セル値"
-	sdate, edate = journal.getDateSection()  # 期首日と期末日のdateオブジェクトを取得。
-	lowerlimit, col0min, upperlimit, col0max = None, None, None, None
-	if sdate:  # 期首日が取得出来ている時。
-		if centerdate<sdate:  # 期首日より新しい取得日の時。
-			centerdate = sdate + timedelta(days=todayindex)  # 期首日が１番上に来るようにする。
-			lowerlimit = 0  # 最小週数を設定。
-			col0 = ("期首日", *[""]*6)
-		else:	
-			diffmindays = (centerdate-timedelta(days=todayindex)-sdate).days  # 期首日までの日数差。
-			lowerlimit = diffmindays//-7  # 期首日までの週数差。負数が返る。
-			indexmin = (7-diffmindays%7)%7  # 最小週数での期首日の位置。
-			col0min = (*[""]*indexmin, "期首日", *[""]*(6-indexmin))
-	if edate:  # 期末日がある時。
-		if edate<centerdate:  # 期末日より古い取得日の時。
-			centerdate = edate - timedelta(days=todayindex)  # 期末日が一番下に来るようにする。
-			upperlimit = 0  # 最大週数を設定。
-			numericfield1.setMax(0)
-			col0 = (*[""]*6, "期末日")  
-		else:		
-			diffmaxdays = (edate-timedelta(days=todayindex)-centerdate).days  # 期末日までの日数差。
-			upperlimit = -(diffmaxdays//-7)   # 期末日までの週数差。
-			indexmax = (diffmaxdays%7-1)%7  # 最大週数での期末日の位置。
-			col0max = (*[""]*indexmax, "期末日", *[""]*(6-indexmax))
-	if selection.getCellAddress().Row>=journal.VARS.splittedrow:  # 選択セルが固定行以下の時のみ上限と下限を指定する。
-		if lowerlimit is not None:	
+	sdate, edate = None, None
+	lowerlimit, col0min, upperlimit, col0max = None, None, None, None	
+	if selection.getCellAddress().Row>=journal.VARS.splittedrow:  # 選択セルが固定行以下の時のみ上限と下限を指定する。	
+		sdate, edate = journal.getDateSection()  # 期首日と期末日のdateオブジェクトを取得。
+		if sdate:  # 期首日と期末日が取得出来ている問。
+			if not sdate<=centerdate<=edate:  # 中央値が会計期間内でない時。centerdateを変更する。
+				if centerdate<sdate:  # 期首日より新しい取得日の時。
+					centerdate = sdate + timedelta(days=todayindex)  # 期首日が１番上に来るようにする。
+					lowerlimit = 0  # 最小週数を設定。
+					col0 = ("期首日", *[""]*6)		
+				else:  # 期末日より古い取得日の時。
+					centerdate = edate - timedelta(days=todayindex)  # 期末日が一番下に来るようにする。
+					upperlimit = 0  # 最大週数を設定。
+					numericfield1.setMax(0)
+					col0 = (*[""]*6, "期末日")  		
+			if lowerlimit is None:
+				diffmindays = (centerdate-timedelta(days=todayindex)-sdate).days  # centerdateから期首日までの日数差。
+				lowerlimit = diffmindays//-7  # 期首日までの週数差。負数が返る。
+				indexmin = (7-diffmindays%7)%7  # 最小週数での期首日の位置。
+				col0min = (*[""]*indexmin, "期首日", *[""]*(6-indexmin))		
+			if upperlimit is None:	
+				diffmaxdays = (edate-timedelta(days=todayindex)-centerdate).days  # centerdateから期末日までの日数差。
+				upperlimit = -(diffmaxdays//-7)   # 期末日までの週数差。
+				indexmax = (diffmaxdays%7-1)%7  # 最大週数での期末日の位置。
+				col0max = (*[""]*indexmax, "期末日", *[""]*(6-indexmax))		
 			numericfield1.setMin(lowerlimit)  # 最小週数を設定。		
-		if upperlimit is not None:
-			numericfield1.setMax(upperlimit)  # 最大週数を設定。		
+			numericfield1.setMax(upperlimit)  # 最大週数を設定。				
 	textlistener.colargs = col0, lowerlimit, col0min, upperlimit, col0max		
 	addDays = addDaysCreator(selection, gridcontrol1, sdate, edate)
 	textlistener.addDays = addDays
