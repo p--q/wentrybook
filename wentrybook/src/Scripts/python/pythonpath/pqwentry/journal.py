@@ -115,6 +115,7 @@ class ValueModifyListener(unohelper.Base, XModifyListener):  # WindowsではModi
 				subj, listener = self.slipnosubjectmodifylistener
 				subj.removeModifyListener(listener)  # WindowsではModifyListenerを外しておかないとクラッシュする。
 				sheet[VARS.splittedrow, VARS.daycolumn:VARS.daycolumn+2].setDataArray(((sheet[VARS.settlingdayrows[0], VARS.daycolumn].getValue(), "前期より繰越"),))  # 繰越行を挿入。
+				sheet[VARS.splittedrow-1, VARS.splittedcolumn:VARS.emptycolumn].setDataArray(((0,)*(VARS.emptycolumn-VARS.splittedcolumn),))  # 列毎小計を0にリセット。
 				subj.addModifyListener(listener)  # ModifyListenerを付け直す。
 	def disposing(self, eventobject):
 		eventobject.Source.removeModifyListener(self)
@@ -250,7 +251,6 @@ def kurikoshi(xscriptcontext, querybox, txt, startday, endday):
 			newheaderrowsgene = zip(*generateHeaderRows(newdatarows[:VARS.kamokurow+2])[1:])  # (区分行、科目行、補助科目行)をイテレートする。		
 			if newsheet[splittedrow, daycolumn+1].getString()!="前期より繰越":  # 先頭行が繰越伝票でない時。
 				newsheet.insertCells(newsheet[splittedrow, :].getRangeAddress(), insert_rows)  # 空行を挿入。
-				
 				slipnosubjectmodifylistener = documentevent.addModifyListener(doc, [newsheet[splittedrow, slipnocolumn:tekiyocolumn].getRangeAddress()], SlipNoModifyListener(xscriptcontext))  # 新規行にModifyListenerを付ける。
 				documentevent.addModifyListener(doc, [newsheet[splittedrow, splittedcolumn:].getRangeAddress()], ValueModifyListener(xscriptcontext, slipnosubjectmodifylistener))  # 新規行にModifyListenerを付ける。  
 	if not newsheet:  # まだ次期シートが取得できていない時。
