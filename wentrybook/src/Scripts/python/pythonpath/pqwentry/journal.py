@@ -386,7 +386,7 @@ def createProfitAndLossCreator(xscriptcontext, datetxts):	# 損益通算書の�
 			if kamoku in ("専従者給与", "貸倒引当金繰入", "期首商品棚卸高", "仕入金額"):
 				kamokuvaluedic[kamoku] = sums[5]
 			else:  # その他の経費。
-				expensesvaluedic[kamoku] = sum[5]
+				expensesvaluedic[kamoku] = sums[5]
 		elif kubun=="収益":  # 貸方科目。"売上金額", "貸倒引当金繰戻", "期末商品棚卸高"。これ以外の収益は想定していない。
 			kamokuvaluedic[kamoku] = sums[4]
 	def createPL(newdoc, pagewidth):
