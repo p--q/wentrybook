@@ -253,8 +253,6 @@ def kurikoshi(xscriptcontext, querybox, txt, startday, endday):
 				
 				slipnosubjectmodifylistener = documentevent.addModifyListener(doc, [newsheet[splittedrow, slipnocolumn:tekiyocolumn].getRangeAddress()], SlipNoModifyListener(xscriptcontext))  # 新規行にModifyListenerを付ける。
 				documentevent.addModifyListener(doc, [newsheet[splittedrow, splittedcolumn:].getRangeAddress()], ValueModifyListener(xscriptcontext, slipnosubjectmodifylistener))  # 新規行にModifyListenerを付ける。  
-
-	
 	if not newsheet:  # まだ次期シートが取得できていない時。
 		sdate, edate = date(*map(int, startday.split("-"))), date(*map(int, endday.split("-")))  # 現シートの期首日と期末日のdateオブジェクトを取得。
 		newsdate = edate + timedelta(days=1)  # 次期期首日のdateオブジェクトを取得。
@@ -268,11 +266,8 @@ def kurikoshi(xscriptcontext, querybox, txt, startday, endday):
 		newsdaycell.setFormula(newsdate.isoformat())  # 新規期首日を代入。
 		newedaycell.setFormula(newedate.isoformat())  # 新規期末日を代入。				
 		documentevent.addModifyListener(doc, (i.getRangeAddress() for i in (newsdaycell, newedaycell)), SettlingDayModifyListener(xscriptcontext))  # 次期シートにModifyLsitenerの追加。
-
 		slipnosubjectmodifylistener = documentevent.addModifyListener(doc, [newsheet[splittedrow:, slipnocolumn:tekiyocolumn].getRangeAddress()], SlipNoModifyListener(xscriptcontext))  # 次期シートにModifyLsitenerの追加。
 		documentevent.addModifyListener(doc, [newsheet[splittedrow:, splittedcolumn:].getRangeAddress()], ValueModifyListener(xscriptcontext, slipnosubjectmodifylistener))  # 次期シートにModifyLsitenerの追加。
-
-		
 		newheaderrowsgene = zip(*headerrows[1:])  # (区分行、科目行、補助科目行)をイテレートする。			
 	indicator.start("次期繰越金を算出", len(datarows[0]))		
 	columnstotaldic = {i[:-1]: i[-1] for i in zip(*headerrows[1:], datarows[VARS.splittedrow-1][VARS.splittedcolumn:]) if i[-1]}  # キー: (区分、科目、補助科目)のタプル、値: 各列計、の辞書を取得。各列0が0や空セルのものは取得しない。
@@ -283,7 +278,8 @@ def kurikoshi(xscriptcontext, querybox, txt, startday, endday):
 		indicator.setValue(t)	
 		t += 1
 		if i[1]=="元入金":  # 科目が元入金の時。
-			val = newmotoire  # 新元入金を取得。				
+			val = newmotoire  # 新元入金を取得。		
+			del columnstotaldic[i]  # 辞書から消去。		
 		elif i in columnstotaldic:  # 前期の(区分、科目、補助科目)が一致するものがあるとき。
 			if (i[0] in ("経費", "収益")) or (i[1] in ("事業主貸", "事業主借")):  # 区分が経費や収益の時、または、科目が事業主貸や事業主借の時。
 				del columnstotaldic[i]  # 辞書から消去。
@@ -384,11 +380,11 @@ def createProfitAndLossCreator(xscriptcontext, datetxts):	# 損益通算書の�
 	def addPL(kubun, kamoku, sums):
 		if kubun=="経費":  # 借方科目。
 			if kamoku in ("専従者給与", "貸倒引当金繰入", "期首商品棚卸高", "仕入金額"):
-				kamokuvaluedic[kamoku] = sums[5]
+				kamokuvaluedic[kamoku] = sums[4]
 			else:  # その他の経費。
-				expensesvaluedic[kamoku] = sums[5]
+				expensesvaluedic[kamoku] = sums[4]
 		elif kubun=="収益":  # 貸方科目。"売上金額", "貸倒引当金繰戻", "期末商品棚卸高"。これ以外の収益は想定していない。
-			kamokuvaluedic[kamoku] = sums[4]
+			kamokuvaluedic[kamoku] = sums[5]
 	def createPL(newdoc, pagewidth):
 		datetxtforsheet, presentdatetxt, dummy = datetxts
 		newsheets = newdoc.getSheets()
@@ -456,7 +452,8 @@ def createProfitAndLossCreator(xscriptcontext, datetxts):	# 損益通算書の�
 		cellrangeobjects = newsheet[1, 3], newsheet[6, 1], newsheet[8, 1], newsheet[9, 0], newsheet[expensesendrow-1, 1], newsheet[expensesendrow, 0], newsheet[expensesendrow+2, 2], newsheet[expensesendrow+5, 2]  # 現在日、差し引き、計、のセル。
 		setCellRangeProperty(newdoc, (i.getRangeAddress() for i in cellrangeobjects), lambda x: x.setPropertyValue("HoriJustify", RIGHT))
 		searchdescriptor = newsheet.createSearchDescriptor()
-		searchdescriptor.setSearchString(0)  # 0のセルを取得。戻り値はない。	
+		searchdescriptor.setPropertyValue("SearchRegularExpression", True)  # 正規表現を有効にする。
+		searchdescriptor.setSearchString("^0")  # 0のセルを取得。戻り値はない。
 		cellranges = datarange.findAll(searchdescriptor)  # 値のあるセルから0以外が入っているセル範囲コレクションを取得。見つからなかった時はNoneが返る。
 		if cellranges:
 			cellranges.clearContents(CellFlags.VALUE)  # 0のセルを空セルにする。	
@@ -494,8 +491,9 @@ def createTrialBalanceCreator(xscriptcontext, datetxts):  # 試算表の作成�
 		setCellRangeProperty(newdoc, rangeaddresses, lambda x: x.setPropertyValue("HoriJustify", CENTER))
 		datarange = newsheet[4:rowscount, 1:columnscount]		
 		searchdescriptor = newsheet.createSearchDescriptor()
-		searchdescriptor.setSearchString(0)  # 0のセルを取得。戻り値はない。	
-		cellranges = datarange.findAll(searchdescriptor)  # 値のあるセルから0以外が入っているセル範囲コレクションを取得。見つからなかった時はNoneが返る。
+		searchdescriptor.setPropertyValue("SearchRegularExpression", True)  # 正規表現を有効にする。
+		searchdescriptor.setSearchString("^0")  # 0のセルを取得。戻り値はない。	
+		cellranges = datarange.findAll(searchdescriptor)  # 値のあるセルから0が入っているセル範囲コレクションを取得。見つからなかった時はNoneが返る。
 		if cellranges:
 			cellranges.clearContents(CellFlags.VALUE)  # 0のセルを空セルにする。
 		datarange.setPropertyValue("NumberFormat", commons.formatkeyCreator(newdoc)("#,##0;[BLUE]-#,##0"))	
@@ -509,7 +507,7 @@ def createTrialBalanceCreator(xscriptcontext, datetxts):  # 試算表の作成�
 		newsheet[0, 1:columnscount].getColumns().setPropertyValue("Width", newkingakuwidth)  # 金額列の列幅を設定。
 		newsheet.getColumns()[0].setPropertyValue("Width", pagewidth-newkingakuwidth*(columnscount-1))  # 科目列幅を設定。残った幅をすべて割り当てる。	
 	return addToTrialB, createTrialBalance
-def createBalanceSheetCreator(xscriptcontext, datetxts):  # 損益計算書の作成。
+def createBalanceSheetCreator(xscriptcontext, datetxts):  # 賃借対照表の作成。
 	datetxtforsheet, presentdatetxt, datetxtsforBS = datetxts
 	barancesheetrows = [("賃借対照表", "", "", "", "", ""),\
 						(datetxtforsheet, "", "", "", "", presentdatetxt),\
@@ -532,7 +530,7 @@ def createBalanceSheetCreator(xscriptcontext, datetxts):  # 損益計算書の�
 			if kamoku=="事業主借":
 				jigyonushikarirow = kamoku, 0, sums[5]
 			elif kamoku=="元入金":
-				motoirerow = kamoku, sums[0], sums[4]  # 賃借対照表の元入金の期首と期末の額は同一。
+				motoirerow = kamoku, sums[1], sums[5]  # 賃借対照表の元入金の期首と期末の額は同一。
 			else:
 				balancesheetkashikata.append((kamoku, sums[1], sums[5]))  # 賃借対照表の貸方の(科目, 期首金額, 期末金額)を取得。
 		elif kubun=="経費":
@@ -575,7 +573,8 @@ def createBalanceSheetCreator(xscriptcontext, datetxts):  # 損益計算書の�
 		setCellRangeProperty(newdoc, (i.getRangeAddress() for i in cellrangeobjects), lambda x: x.setPropertyValue("NumberFormat", commons.formatkeyCreator(newdoc)("#,##0;[BLUE]-#,##0")))
 		cellrangeobjects = newsheet[4:rowscount-2, 1:3], newsheet[4:rowscount-4, 4:6]  # 事業主貸、合計、事業主借、元入金、所得の金額を除いた金額欄は0は空セルにする。
 		searchdescriptor = newsheet.createSearchDescriptor()
-		searchdescriptor.setSearchString(0)  # 0のセルを取得。戻り値はない。	
+		searchdescriptor.setPropertyValue("SearchRegularExpression", True)  # 正規表現を有効にする。
+		searchdescriptor.setSearchString("^0")  # 0のセルを取得。戻り値はない。	
 		cellranges = newdoc.createInstance("com.sun.star.sheet.SheetCellRanges")  
 		cellranges.addRangeAddresses((i.getRangeAddress() for i in cellrangeobjects), False)			
 		resulutcellranges = cellranges.queryContentCells(CellFlags.VALUE).findAll(searchdescriptor)  # 値のあるセルから0以外が入っているセル範囲コレクションを取得。見つからなかった時はNoneが返る。
