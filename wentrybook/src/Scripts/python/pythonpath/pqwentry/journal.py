@@ -368,6 +368,7 @@ def createFinancialStatements(xscriptcontext, txt):  # 決算書作成。
 	createBalanceSheet(newdoc, pagewidth)  # 賃借対照表シートの作成。
 	newdocname = "決算書_{}_{}.ods".format(datetxtforfile, datetime.now().strftime("%Y%m%d%H%M%S"))
 	indicator.setText("ファイルに保存中 {}".format(newdocname))	
+	newdoc.getStyleFamilies()["PageStyles"]["Default"].setPropertyValue("HeaderIsOn", False)  # 印刷時ヘッダーを付けない。
 	saveNewDoc(doc, newdoc, newdocname)	
 	indicator.end()  # reset()の前にend()しておかないと元に戻らない。
 	indicator.reset()  # ここでリセットしておかないと例外が発生した時にリセットする機会がない。	
@@ -860,7 +861,6 @@ def saveNewDoc(doc, newdoc, newdocname):
 		msgbox = componentwindow.getToolkit().createMessageBox(componentwindow, QUERYBOX, MessageBoxButtons.BUTTONS_YES_NO+MessageBoxButtons.DEFAULT_BUTTON_YES, "WEntryBook", msg)
 		if msgbox.execute()!=MessageBoxResults.YES:  # Yes以外の時はここで終わる。		
 			return
-	newdoc.getStyleFamilies()["PageStyles"]["Default"].setPropertyValue("HeaderIsOn", False)  # 印刷時ヘッダーを付けない。
 	newdoc.storeAsURL(unohelper.systemPathToFileUrl(systempath), ())  # 新規ドキュメントを保存。	
 def createNewSheetCreator(newdoc, newkamokucolumnidxes, newkingakucolumns, newheadermergecolumns, newtekiyocolumn):		
 	newdatewidth = 1500  # 日付列幅。1/100mm。
@@ -870,12 +870,16 @@ def createNewSheetCreator(newdoc, newkamokucolumnidxes, newkingakucolumns, newhe
 	tableborder2 = TableBorder2(TopLine=borderline, LeftLine=borderline, RightLine=borderline, BottomLine=borderline, IsTopLineValid=True, IsBottomLineValid=True, IsLeftLineValid=True, IsRightLineValid=True)	
 	createFormatKey = commons.formatkeyCreator(newdoc)
 	newsheets = newdoc.getSheets()  # 新規ドキュメントのシートコレクションを取得。	
-	width, leftmargin, rightmargin = newdoc.getStyleFamilies()["PageStyles"]["Default"].getPropertyValues(("Width", "LeftMargin", "RightMargin"))
-	pagewidth = width - leftmargin - rightmargin  # 印刷幅を1/100mmで取得。		
+	pagestyle = newdoc.getStyleFamilies()["PageStyles"]["Default"]
+	width, leftmargin, rightmargin = pagestyle.getPropertyValues(("Width", "LeftMargin", "RightMargin"))
+	pagewidth = width - leftmargin - rightmargin  # 印刷幅を1/100mmで取得。	
+	insertPageBreaks = insertPageBreaksCreator(pagestyle)
+	pagestyle.setPropertyValue("HeaderIsOn", False)  # 印刷時ヘッダーを付けない。
 	def createNewSheet(kozakamokuname, newdatarows, slipstartrows):  # 新規シートを挿入してデータを代入して書式設定する。
 		newsheets.insertNewByName(kozakamokuname, len(newsheets))  # 口座科目名のシートを新規ドキュメントに挿入。
 		newsheet = newsheets[kozakamokuname]  # 新規シートを取得。
-		newsheet[:len(newdatarows), :len(newdatarows[0])].setDataArray(newdatarows)  # 新規シートに代入。		
+		newdatarange = newsheet[:len(newdatarows), :len(newdatarows[0])]
+		newdatarange.setDataArray(newdatarows)  # 新規シートに代入。		
 		columncount = len(newdatarows[0])  # 表の列数。	
 		newsheet[0, :columncount].merge(True)  # 題名セルと結合。			
 		newsheet[0, 0].setPropertyValue("HoriJustify", CENTER)  # 題名セルを中央揃え。
@@ -899,6 +903,7 @@ def createNewSheetCreator(newdoc, newkamokucolumnidxes, newkingakucolumns, newhe
 			columns[i].setPropertyValue("Width", j)  # 列幅を設定。
 		columns[0].setPropertyValue("Width", newdatewidth)  # 日付列幅を設定。
 		columns[newtekiyocolumn].setPropertyValue("Width", pagewidth-newdatewidth-newkamokuwidth*len(newkamokucolumnidxes)-newkingakuwidth*len(newkingakucolumns))  # 摘要列幅を設定。残った幅をすべて割り当てる。	
+		insertPageBreaks(newsheet, newdatarange.getRows())
 	return createNewSheet
 def setCellRangeProperty(doc, rangeaddresses, setProperty):
 	cellranges = doc.createInstance("com.sun.star.sheet.SheetCellRanges")  
@@ -1174,3 +1179,25 @@ def getDateSection():  # 期首日と期末日のdateオブジェクトのタプ
 	if len(dates)==2:
 		return dates
 	return (None,)*2
+def insertPageBreaksCreator(pagestyle):  # 行インデックスが偶数のところのみに改ページを挿入する。
+	properties = "Height", "TopMargin", "BottomMargin", "HeaderIsOn", "HeaderHeight", "FooterIsOn", "FooterHeight"
+	height, topmargin, bottommargin, headerison, headerheight, footerison, footerheight = pagestyle.getPropertyValues(properties)
+	pageheight = height - topmargin - bottommargin  # 印刷高さを1/100mmで取得。
+	if headerison:  # ヘッダーがあるときヘッダーの高さを除く。
+		pageheight -= headerheight
+	if footerison:  # フッターがあるときフッターの高さを除く。
+		pageheight -= footerheight
+	def insertPageBreaks(sheet, rows):
+		rows.setPropertyValue("IsStartOfNewPage", False)  # すでにある改ページを消去。
+		h = 0  # 行の高さの合計。
+		for i in range(len(rows)):  # 行インデックスをイテレート。
+			rowheight = rows[i].getPropertyValue("Height")  # 行の高さを取得。
+			h += rowheight  # 行の高さを加算する。
+			if h>pageheight:  # 1ページあたりの高さを越えた時。
+				if i%2:  # 行インデックスが奇数の時。2で割り切れると0になるのでFalseになる。
+					rows[i-1].setPropertyValue("IsStartOfNewPage", True)  # 一つ上の行に改ページを挿入。
+					h = rows[i-1].getPropertyValue("Height") + rowheight  # 行の高さをリセット。  
+				else:  # 行インデックスが偶数の時。
+					rows[i].setPropertyValue("IsStartOfNewPage", True)  # 改ページを挿入。
+					h = rowheight   # 行の高さをリセット。
+	return insertPageBreaks
