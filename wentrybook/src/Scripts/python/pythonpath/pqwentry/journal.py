@@ -984,7 +984,7 @@ def notifyContextMenuExecute(contextmenuexecuteevent, xscriptcontext):  # 右ク
 				elif r==VARS.kamokurow+1 and hojokamoku:  # 補助科目行かつ補助科目行に値があるとき。:
 					addMenuentry("ActionTrigger", {"Text": "{}の補助元帳生成".format(hojokamoku), "CommandURL": baseurl.format("entry3")}) 	
 				elif VARS.splittedrow<=r<=VARS.emptyrow:  # 取引日列が入力済で科目行か補助科目行に値がある列のセルの時。
-					if sheet[r, VARS.sliptotalcolumn].getValue()!=0:  # 伝票内計が0でない時のみ。空セルも0として扱われる。
+					if sheet[r, VARS.sliptotalcolumn].getValue()!=0:  # 伝票内計が0でない時のみ。空セルや文字列は0が返る。
 						txt = hojokamoku if hojokamoku else kamoku  # 補助科目行に値がある時は補助科目行、ないときは科目行の値を使う。
 						addMenuentry("ActionTrigger", {"Text": "「{}」で決済".format(txt), "CommandURL": baseurl.format("entry5")}) 
 						if txt!="現金":  # 現金列でない時のみ。
@@ -1113,14 +1113,22 @@ def contextMenuEntries(entrynum, xscriptcontext):  # コンテクストメニュ
 def settleMultipleSlips(rangeaddress, c):		
 	sheet = VARS.sheet
 	edgerow = rangeaddress.EndRow + 1
-	newedgerow = VARS.emptyrow if edgerow>VARS.emptyrow else edgerow
+	newedgerow = VARS.emptyrow if edgerow>VARS.emptyrow else edgerow  # 最終行端を取得。
+	startrow = rangeaddress.StartRow
+	datarows = sheet[startrow:newedgerow, :VARS.emptycolumn].getDataArray()
 	sliptotalcolumn = VARS.sliptotalcolumn
-	for i in range(rangeaddress.StartRow, newedgerow):  # 各行インデックスについて。
-		if sheet[i, sliptotalcolumn].getValue()!=0:  # 伝票内計が0でない時のみ。空セルも0として扱われる。
-			settle(sheet[i, c])	
+	for i, datarow in enumerate(datarows, start=startrow):
+		if isinstance(datarow[sliptotalcolumn], float) and datarow[sliptotalcolumn]!=0:  # 伝票内計が数値かつ0でない時のみ。
+			cellvalue = datarow[c] if isinstance(datarow[c], float) else 0  # 数値以外のときは0にする。
+			val = (cellvalue-datarow[sliptotalcolumn]) or ""  # 0の時は空文字を代入。
+			sheet[i, c].setDataArray(((val,),))  # 文字列でも数値でも代入できるのでsetDataArray()を使って代入。			
 def settle(cell):
-		val = (cell.getValue()-VARS.sheet[cell.getCellAddress().Row, VARS.sliptotalcolumn].getValue()) or ""  # 0の時は空文字を代入。
-		cell.setDataArray(((val,),))  # 文字列でも数値でも代入できるのでsetDataArray()を使って代入。
+	celladdress = cell.getCellAddress()
+	datarow = VARS.sheet[celladdress.Row, :VARS.emptycolumn].getDataArray()[0]
+	cellvalue = datarow[celladdress.Column]
+	cellvalue = cellvalue if isinstance(cellvalue, float) else 0  # 数値以外のときは0にする。
+	val = (cellvalue-datarow[VARS.sliptotalcolumn]) or ""  # 0の時は空文字を代入。
+	cell.setDataArray(((val,),))  # 文字列でも数値でも代入できるのでsetDataArray()を使って代入。			
 def callback_sliphistoryCreator(xscriptcontext, selection):		
 	def callback_sliphistory(gridcelltxt):
 		tekiyo, jsondata = gridcelltxt.split(":", 1)  # 摘要、と、科目金額辞書の文字列を取得する。
