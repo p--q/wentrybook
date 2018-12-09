@@ -1190,14 +1190,10 @@ def insertPageBreaksCreator(pagestyle):  # 行インデックスが偶数のと�
 	def insertPageBreaks(sheet, rows):
 		rows.setPropertyValue("IsStartOfNewPage", False)  # すでにある改ページを消去。
 		h = 0  # 行の高さの合計。
-		for i in range(len(rows)):  # 行インデックスをイテレート。
-			rowheight = rows[i].getPropertyValue("Height")  # 行の高さを取得。
+		for i in range(0, len(rows), 2):  # 偶数の行インデックスをイテレート。
+			rowheight = rows[i].getPropertyValue("Height") + rows[i+1].getPropertyValue("Height")  # 行の高さを取得。
 			h += rowheight  # 行の高さを加算する。
 			if h>pageheight:  # 1ページあたりの高さを越えた時。
-				if i%2:  # 行インデックスが奇数の時。2で割り切れると0になるのでFalseになる。
-					rows[i-1].setPropertyValue("IsStartOfNewPage", True)  # 一つ上の行に改ページを挿入。
-					h = rows[i-1].getPropertyValue("Height") + rowheight  # 行の高さをリセット。  
-				else:  # 行インデックスが偶数の時。
-					rows[i].setPropertyValue("IsStartOfNewPage", True)  # 改ページを挿入。
-					h = rowheight   # 行の高さをリセット。
+				rows[i].setPropertyValue("IsStartOfNewPage", True)  # 改ページを挿入。
+				h = rowheight   # 行の高さをリセット。
 	return insertPageBreaks
