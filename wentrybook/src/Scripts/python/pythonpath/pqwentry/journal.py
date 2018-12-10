@@ -174,7 +174,7 @@ def mousePressed(enhancedmouseevent, xscriptcontext):  # マウスボタンを�
 					else:							
 						txt = selection.getString()	
 						if txt=="メニュー":
-							defaultrows = "仕訳日記帳生成", "総勘定元帳生成", "全補助元帳生成", "決算書生成", "------", "次年度繰越"
+							defaultrows = "日付順に並び替え", "------", "仕訳日記帳生成", "総勘定元帳生成", "全補助元帳生成", "決算書生成", "------", "次年度繰越"
 							menudialog.createDialog(xscriptcontext, txt, defaultrows, enhancedmouseevent=enhancedmouseevent, callback=callback_menuCreator(xscriptcontext))
 					return False  # セル編集モードにしない。
 				elif r>=VARS.splittedrow and c==VARS.daycolumn:  # 取引日列の時。
@@ -214,6 +214,14 @@ def callback_menuCreator(xscriptcontext):  # 内側のスコープでクロー�
 			if msgbox.execute()!=MessageBoxResults.YES:  # Yes以外の時はここで終わる。		
 				return			
 			kurikoshi(xscriptcontext, querybox, gridcelltxt, startday, endday)
+		elif gridcelltxt=="日付順に並び替え":
+			msgbox = querybox("{}します。".format(gridcelltxt))
+			if msgbox.execute()!=MessageBoxResults.YES:  # Yes以外の時はここで終わる。		
+				return					
+			ctx = xscriptcontext.getComponentContext()  # コンポーネントコンテクストの取得。
+			smgr = ctx.getServiceManager()  # サービスマネージャーの取得。
+			dispatcher = smgr.createInstanceWithContext("com.sun.star.frame.DispatchHelper", ctx)			
+			sortSlips(dispatcher, xscriptcontext.getDocument())  # 日付順に伝票をソート。			
 	return callback_menu
 def kurikoshi(xscriptcontext, querybox, txt, startday, endday):
 	doc = xscriptcontext.getDocument()
@@ -909,18 +917,20 @@ def setCellRangeProperty(doc, rangeaddresses, setProperty):
 	cellranges = doc.createInstance("com.sun.star.sheet.SheetCellRanges")  
 	cellranges.addRangeAddresses(rangeaddresses, False)	
 	setProperty(cellranges)
+def sortSlips(dispatcher, doc):  # 日付順に伝票をソート。
+	controller = doc.getCurrentController()	
+	selection = doc.getCurrentSelection()  # 選択範囲をここで保存しておく。
+	controller.select(VARS.sheet[VARS.splittedrow:, :])  # ソートするセル範囲を選択。固定行以下すべてを選択。
+	props = PropertyValue(Name="Col1", Value=VARS.daycolumn+1),  # 日付順にソート。Col1の番号は優先順位。Valueはインデックス+1。 
+	dispatcher.executeDispatch(controller.getFrame(), ".uno:DataSort", "", 0, props)  # ディスパッチコマンドでソート。
+	controller.select(selection)  # 元のセルを選択し直す。		
 def getDataRows(xscriptcontext):
 	if VARS.splittedrow<VARS.emptyrow:  # 伝票行がある時のみ。
 		ctx = xscriptcontext.getComponentContext()  # コンポーネントコンテクストの取得。
 		smgr = ctx.getServiceManager()  # サービスマネージャーの取得。
 		dispatcher = smgr.createInstanceWithContext("com.sun.star.frame.DispatchHelper", ctx)
 		doc = xscriptcontext.getDocument()
-		controller = doc.getCurrentController()	
-		selection = doc.getCurrentSelection()  # 選択範囲をここで保存しておく。
-		controller.select(VARS.sheet[VARS.splittedrow:, :])  # ソートするセル範囲を選択。固定行以下すべてを選択。
-		props = PropertyValue(Name="Col1", Value=VARS.daycolumn+1),  # 日付順にソート。Col1の番号は優先順位。Valueはインデックス+1。 
-		dispatcher.executeDispatch(controller.getFrame(), ".uno:DataSort", "", 0, props)  # ディスパッチコマンドでソート。
-		controller.select(selection)  # 元のセルを選択し直す。							
+		sortSlips(dispatcher, doc)  # 日付順に伝票をソート。			
 		datarows = VARS.sheet[:VARS.emptyrow, :VARS.emptycolumn].getDataArray()  # 全データ行を取得。		
 		msg = ""
 		if not datarows[VARS.kamokurow][VARS.splittedcolumn]:  # 科目行先頭列のセルがTrueでない時。
@@ -945,7 +955,7 @@ def getDataRows(xscriptcontext):
 	else:
 		msg = "処理する伝票行がありません。"
 	if msg:
-		commons.showErrorMessageBox(controller, "{}\n処理を中止します。".format(msg))	
+		commons.showErrorMessageBox(doc.getCurrentController(), "{}\n処理を中止します。".format(msg))	
 		return ("",)*2		
 	headerrows = generateHeaderRows(datarows[:VARS.kamokurow+2])
 	return headerrows, datarows
