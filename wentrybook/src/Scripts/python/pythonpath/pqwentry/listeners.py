@@ -8,10 +8,8 @@ from com.sun.star.document import XDocumentEventListener
 from com.sun.star.sheet import XActivationEventListener
 from com.sun.star.ui import XContextMenuInterceptor
 from com.sun.star.ui.ContextMenuInterceptorAction import IGNORED  # enum
-from com.sun.star.util import XChangesListener
 from com.sun.star.view import XSelectionChangeListener
 def invokeModuleMethod(name, methodname, *args):  # commons.getModle()でモジュールを振り分けてそのモジュールのmethodnameのメソッドを引数argsで呼び出す。
-# 	import pydevd; pydevd.settrace(stdoutToServer=True, stderrToServer=True)  # ここでブレークするとすべてのイベントでブレークすることになる。
 	try:
 		m = commons.getModule(name)  # モジュールを取得。
 		if hasattr(m, methodname):  # モジュールにmethodnameの関数が存在する時。	
@@ -23,17 +21,15 @@ def addLinsteners(tdocimport, modulefolderpath, xscriptcontext):  # 引数は文
 	invokeModuleMethod(None, "documentOnLoad", xscriptcontext)  # ドキュメントを開いた時に実行するメソッド。リスナー追加前（リスナー追加後であってもリスナーは発火しない模様)。
 	doc = xscriptcontext.getDocument()  # ドキュメントのモデルを取得。 
 	controller = doc.getCurrentController()  # コントローラの取得。
-	changeslistener = ChangesListener(xscriptcontext)  # ChangesListener。セルの変化の感知に利用。列の挿入も感知。
 	selectionchangelistener = SelectionChangeListener(xscriptcontext)  # SelectionChangeListener。選択範囲の変更の感知に利用。
 	activationeventlistener = ActivationEventListener(xscriptcontext, selectionchangelistener)  # ActivationEventListener。シートの切替の感知に利用。selectionchangelistenerを無効にするために渡す。
 	enhancedmouseclickhandler = EnhancedMouseClickHandler(xscriptcontext)  # EnhancedMouseClickHandler。マウスの左クリックの感知に利用。enhancedmouseeventのSourceはNone。
 	contextmenuinterceptor = ContextMenuInterceptor(xscriptcontext)  # ContextMenuInterceptor。右クリックメニューの変更に利用。
-	doc.addChangesListener(changeslistener)
 	controller.addSelectionChangeListener(selectionchangelistener)
 	controller.addActivationEventListener(activationeventlistener)
 	controller.addEnhancedMouseClickHandler(enhancedmouseclickhandler)
 	controller.registerContextMenuInterceptor(contextmenuinterceptor)
-	listeners = changeslistener, selectionchangelistener, activationeventlistener, enhancedmouseclickhandler, contextmenuinterceptor
+	listeners = selectionchangelistener, activationeventlistener, enhancedmouseclickhandler, contextmenuinterceptor
 	doc.addDocumentEventListener(DocumentEventListener(xscriptcontext, tdocimport, modulefolderpath, controller, *listeners))  # DocumentEventListener。ドキュメントとコントローラに追加したリスナーの除去に利用。
 class DocumentEventListener(unohelper.Base, XDocumentEventListener):
 	def __init__(self, xscriptcontext, *args):
@@ -42,9 +38,8 @@ class DocumentEventListener(unohelper.Base, XDocumentEventListener):
 	def documentEventOccured(self, documentevent):
 		eventname = documentevent.EventName
 		if eventname=="OnUnload":  # ドキュメントを閉じる時。リスナーを除去する。
-			tdocimport, modulefolderpath, controller, changeslistener, selectionchangelistener, activationeventlistener, enhancedmouseclickhandler, contextmenuinterceptor = self.args
+			tdocimport, modulefolderpath, controller, selectionchangelistener, activationeventlistener, enhancedmouseclickhandler, contextmenuinterceptor = self.args
 			tdocimport.remove_meta(modulefolderpath)  # modulefolderpathをメタパスから除去する。
-			documentevent.Source.removeChangesListener(changeslistener)
 			controller.removeSelectionChangeListener(selectionchangelistener)
 			controller.removeActivationEventListener(activationeventlistener)
 			controller.removeEnhancedMouseClickHandler(enhancedmouseclickhandler)
@@ -92,13 +87,6 @@ class SelectionChangeListener(unohelper.Base, XSelectionChangeListener):
 		invokeModuleMethod(eventobject.Source.getActiveSheet().getName(), "selectionChanged", eventobject, self.xscriptcontext)	
 	def disposing(self, eventobject):
 		eventobject.Source.removeSelectionChangeListener(self)		
-class ChangesListener(unohelper.Base, XChangesListener):
-	def __init__(self, xscriptcontext):
-		self.xscriptcontext = xscriptcontext
-	def changesOccurred(self, changesevent):  # Sourceにはドキュメントが入る。
-		invokeModuleMethod(changesevent.Source.getCurrentController().getActiveSheet().getName(), "changesOccurred", changesevent, self.xscriptcontext)							
-	def disposing(self, eventobject):
-		eventobject.Source.removeChangesListener(self)			
 class ContextMenuInterceptor(unohelper.Base, XContextMenuInterceptor):  # コンテクストメニューのカスタマイズ。
 	def __init__(self, xscriptcontext):
 		self.xscriptcontext = xscriptcontext
