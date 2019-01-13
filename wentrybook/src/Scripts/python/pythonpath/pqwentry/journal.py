@@ -998,12 +998,16 @@ def notifyContextMenuExecute(contextmenuexecuteevent, xscriptcontext):  # 右ク
 					addMenuentry("ActionTrigger", {"Text": "{}の勘定元帳生成".format(kamoku), "CommandURL": baseurl.format("entry2")}) 
 				elif r==VARS.kamokurow+1 and hojokamoku:  # 補助科目行かつ補助科目行に値があるとき。:
 					addMenuentry("ActionTrigger", {"Text": "{}の補助元帳生成".format(hojokamoku), "CommandURL": baseurl.format("entry3")}) 	
-				elif VARS.splittedrow<=r<=VARS.emptyrow:  # 取引日列が入力済で科目行か補助科目行に値がある列のセルの時。
-					if sheet[r, VARS.sliptotalcolumn].getValue()!=0:  # 伝票内計が0でない時のみ。空セルや文字列は0が返る。
-						txt = hojokamoku if hojokamoku else kamoku  # 補助科目行に値がある時は補助科目行、ないときは科目行の値を使う。
-						addMenuentry("ActionTrigger", {"Text": "「{}」で決済".format(txt), "CommandURL": baseurl.format("entry5")}) 
-						if txt!="現金":  # 現金列でない時のみ。
-							addMenuentry("ActionTrigger", {"Text": "「現金」で決済", "CommandURL": baseurl.format("entry4")}) 
+				elif r>=VARS.splittedrow:  # 固定行より下の時。
+					if r<=VARS.emptyrow:  # 取引日列が入力済の時。
+						if sheet[r, VARS.sliptotalcolumn].getValue()!=0:  # 伝票内計が0でない時のみ。空セルや文字列は0が返る。
+							txt = hojokamoku if hojokamoku else kamoku  # 補助科目行に値がある時は補助科目行、ないときは科目行の値を使う。
+							addMenuentry("ActionTrigger", {"Text": "「{}」で決済".format(txt), "CommandURL": baseurl.format("entry5")}) 
+							if txt!="現金":  # 現金列でない時のみ。
+								addMenuentry("ActionTrigger", {"Text": "「現金」で決済", "CommandURL": baseurl.format("entry4")}) 
+							addMenuentry("ActionTriggerSeparator", {"SeparatorType": ActionTriggerSeparatorType.LINE})		
+					if selection.getValue()!=0:  # セルの値が0でない時。
+						addMenuentry("ActionTrigger", {"Text": "正負反転", "CommandURL": baseurl.format("entry10")}) 		
 				addMenuentry("ActionTriggerSeparator", {"SeparatorType": ActionTriggerSeparatorType.LINE})
 				addMenuentry("ActionTrigger", {"CommandURL": ".uno:InsertAnnotation"})	
 				addMenuentry("ActionTrigger", {"CommandURL": ".uno:EditAnnotation"})	
@@ -1016,13 +1020,19 @@ def notifyContextMenuExecute(contextmenuexecuteevent, xscriptcontext):  # 右ク
 						txt = hojokamoku if hojokamoku else kamoku  # 補助科目行に値がある時は補助科目行、ないときは科目行の値を使う。
 						addMenuentry("ActionTrigger", {"Text": "選択伝票を「{}」で決済".format(txt), "CommandURL": baseurl.format("entry8")}) 
 						if txt!="現金":  # 現金列でない時のみ。
-							addMenuentry("ActionTrigger", {"Text": "選択伝票を「現金」で決済", "CommandURL": baseurl.format("entry9")}) 			
-		elif r>=VARS.splittedrow and c==VARS.daycolumn+1:  # 摘要列の時。
-			if selection.supportsService("com.sun.star.sheet.SheetCell"):  # 単独セルの時のみ。
-				addMenuentry("ActionTrigger", {"Text": "伝票履歴", "CommandURL": baseurl.format("entry6")}) 
-				addMenuentry("ActionTriggerSeparator", {"SeparatorType": ActionTriggerSeparatorType.LINE})
-			if VARS.splittedrow<VARS.emptyrow:  # 伝票行がある時のみ。
-				addMenuentry("ActionTrigger", {"Text": "伝票履歴に追加", "CommandURL": baseurl.format("entry7")}) 
+							addMenuentry("ActionTrigger", {"Text": "選択伝票を「現金」で決済", "CommandURL": baseurl.format("entry9")}) 		
+						addMenuentry("ActionTriggerSeparator", {"SeparatorType": ActionTriggerSeparatorType.LINE})			
+				addMenuentry("ActionTrigger", {"Text": "正負反転", "CommandURL": baseurl.format("entry10")}) 								
+		elif r>=VARS.splittedrow:  # 固定行より下。
+			if c==VARS.daycolumn+1:  # 摘要列の時。
+				if selection.supportsService("com.sun.star.sheet.SheetCell"):  # 単独セルの時のみ。
+					addMenuentry("ActionTrigger", {"Text": "伝票履歴", "CommandURL": baseurl.format("entry6")}) 
+					addMenuentry("ActionTriggerSeparator", {"SeparatorType": ActionTriggerSeparatorType.LINE})
+				if VARS.splittedrow<VARS.emptyrow:  # 伝票行がある時のみ。
+					addMenuentry("ActionTrigger", {"Text": "伝票履歴に追加", "CommandURL": baseurl.format("entry7")}) 
+			elif c==VARS.daycolumn:  # 取引日列の時。
+				addMenuentry("ActionTrigger", {"Text": "文字列を日付に変換", "CommandURL": baseurl.format("entry11")}) 
+				addMenuentry("ActionTriggerSeparator", {"SeparatorType": ActionTriggerSeparatorType.LINE})					
 		addMenuentry("ActionTriggerSeparator", {"SeparatorType": ActionTriggerSeparatorType.LINE})
 		commons.cutcopypasteMenuEntries(addMenuentry)
 		addMenuentry("ActionTriggerSeparator", {"SeparatorType": ActionTriggerSeparatorType.LINE})
@@ -1125,6 +1135,16 @@ def contextMenuEntries(entrynum, xscriptcontext):  # コンテクストメニュ
 		rangeaddress = selection.getRangeAddress()
 		datarow = sheet[VARS.kamokurow, :VARS.emptycolumn].getDataArray()[0]  # 科目行を取得。
 		settleMultipleSlips(rangeaddress, datarow.index("現金", VARS.splittedcolumn))
+	elif entrynum==10:  # 正負反転。複数セル選択の時もあり。setDataArray()で処理するとコメントの処理が必要で時間がかかる。
+		for i in selection.queryContentCells(CellFlags.VALUE).getCells():  # 数値が入っているセルを取得。
+			val = i.getValue()
+			if val:  # 値が0でない時。
+				i.setValue(-val)	
+	elif entrynum==11:  # 文字列を日付に変換。複数セル選択の時もあり。未実装。
+		for i in selection.queryContentCells(CellFlags.STRING).getCells():  # 文字列が入っているセルを取得。			
+			s = i.getString()
+			if s.startswith(("平成", "H")):
+				pass	
 def settleMultipleSlips(rangeaddress, c):		
 	sheet = VARS.sheet
 	edgerow = rangeaddress.EndRow + 1
