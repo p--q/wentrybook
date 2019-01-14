@@ -1145,7 +1145,7 @@ def contextMenuEntries(entrynum, xscriptcontext):  # コンテクストメニュ
 			s = i.getString()	
 			if s[:4].isdigit():  # 先頭の4文字が数字の時は西暦と判断する。
 				i.setFormula(s.replace(s[4], "-"))  # 区切り文字を-に変換して式として代入し直す。
-		selection[:, 0].setPropertyValues(("HoriJustify", "NumberFormat"), (LEFT, commons.formatkeyCreator(xscriptcontext.getDocument())("YYYY-MM-DD")))
+		selection[:, 0].setPropertyValue("NumberFormat", commons.formatkeyCreator(xscriptcontext.getDocument())("YYYY-MM-DD"))
 def settleMultipleSlips(rangeaddress, c):		
 	sheet = VARS.sheet
 	edgerow = rangeaddress.EndRow + 1
