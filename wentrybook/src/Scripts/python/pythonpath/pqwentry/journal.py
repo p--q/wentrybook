@@ -1140,11 +1140,12 @@ def contextMenuEntries(entrynum, xscriptcontext):  # コンテクストメニュ
 			val = i.getValue()
 			if val:  # 値が0でない時。
 				i.setValue(-val)	
-	elif entrynum==11:  # 文字列を日付に変換。複数セル選択の時もあり。未実装。
-		for i in selection.queryContentCells(CellFlags.STRING).getCells():  # 文字列が入っているセルを取得。			
-			s = i.getString()
-			if s.startswith(("平成", "H")):
-				pass	
+	elif entrynum==11:  # 文字列を日付に変換。複数セル選択の時もあり。
+		for i in selection[:, 0].queryContentCells(CellFlags.STRING).getCells():  # 文字列が入っているセルを取得。取引日列のみ対象にする。		
+			s = i.getString()	
+			if s[:4].isdigit():  # 先頭の4文字が数字の時は西暦と判断する。
+				i.setFormula(s.replace(s[4], "-"))  # 区切り文字を-に変換して式として代入し直す。
+		selection[:, 0].setPropertyValue("NumberFormat", commons.formatkeyCreator(xscriptcontext.getDocument())("YYYY-MM-DD"))
 def settleMultipleSlips(rangeaddress, c):		
 	sheet = VARS.sheet
 	edgerow = rangeaddress.EndRow + 1
