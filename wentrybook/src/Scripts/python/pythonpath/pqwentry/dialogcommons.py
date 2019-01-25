@@ -94,6 +94,7 @@ def YHeight(props, m=0):  # 上隣のコントロールからPositionYを取得�
 	return props["PositionY"] + props["Height"] + m
 def getDialogPoint(doc, enhancedmouseevent):  # クリックした位置x yのタプルで返す。但し、一部しか見えてないセルの場合はNoneが返る。TaskCreatorのRectangleには画面の左角からの座標を渡すが、ウィンドウタイトルバーは含まれない。
 	controller = doc.getCurrentController()  # 現在のコントローラを取得。
+	componentwindow = controller.ComponentWindow
 	docframe = controller.getFrame()  # フレームを取得。
 	containerwindow = docframe.getContainerWindow()  # コンテナウィドウの取得。
 	accessiblecontextparent = containerwindow.getAccessibleContext().getAccessibleParent()  # コンテナウィンドウの親AccessibleContextを取得する。フレームの子AccessibleContextになる。
@@ -104,31 +105,43 @@ def getDialogPoint(doc, enhancedmouseevent):  # クリックした位置x yの�
 			rootpanebounds = childaccessiblecontext.getBounds()  # Yアトリビュートがウィンドウタイトルバーの高さになる。
 			break 
 	else:
+		msg = "Cannot get the AccessibleContext of the window title bar."		
+		componentwindow.getToolkit().createMessageBox(componentwindow, ERRORBOX, MessageBoxButtons.BUTTONS_OK, "dialogcommons.py", msg).execute()	
 		return  # ウィンドウタイトルバーのAccessibleContextが取得できなかった時はNoneを返す。
-	componentwindow = docframe.getComponentWindow()  # コンポーネントウィンドウを取得。
-	border = controller.getBorder()  # 行ヘッダの幅と列ヘッダの高さの取得のため。
 	accessiblecontext = componentwindow.getAccessibleContext()  # コンポーネントウィンドウのAccessibleContextを取得。
 	for i in range(accessiblecontext.getAccessibleChildCount()):  # 子AccessibleContextについて。
 		childaccessiblecontext = accessiblecontext.getAccessibleChild(i).getAccessibleContext()  # 子AccessibleContextのAccessibleContext。
 		if childaccessiblecontext.getAccessibleRole()==51:  # SCROLL_PANEの時。
-			for j in range(childaccessiblecontext.getAccessibleChildCount()):  # 孫AccessibleContextについて。 
-				grandchildaccessiblecontext = childaccessiblecontext.getAccessibleChild(j).getAccessibleContext()  # 孫AccessibleContextのAccessibleContext。
-				if grandchildaccessiblecontext.getAccessibleRole()==84:  # DOCUMENT_SPREADSHEETの時。これが枠。
-					bounds = grandchildaccessiblecontext.getBounds()  # 枠の位置と大きさを取得(SCROLL_PANEの左上角が原点)。
-					if bounds.X==border.Left and bounds.Y==border.Top:  # SCROLL_PANEに対する相対座標が行ヘッダと列ヘッダと一致する時は左上枠。
-						for k, subcontroller in enumerate(controller):  # 各枠のコントローラについて。インデックスも取得する。
-							cellrange = subcontroller.getReferredCells()  # 見えているセル範囲を取得。一部しかみえていないセルは含まれない。
-							if len(cellrange.queryIntersection(enhancedmouseevent.Target.getRangeAddress())):  # ターゲットが含まれるセル範囲コレクションが返る時その枠がクリックした枠。「ウィンドウの分割」では正しいiは必ずしも取得できない。
-								sourcepointonscreen =  grandchildaccessiblecontext.getLocationOnScreen()  # 左上枠の左上角の点を取得(画面の左上角が原点)。
-								if k==1:  # 左下枠の時。
-									sourcepointonscreen = Point(X=sourcepointonscreen.X, Y=sourcepointonscreen.Y+bounds.Height)
-								elif k==2:  # 右上枠の時。
-									sourcepointonscreen = Point(X=sourcepointonscreen.X+bounds.Width, Y=sourcepointonscreen.Y)
-								elif k==3:  # 右下枠の時。
-									sourcepointonscreen = Point(X=sourcepointonscreen.X+bounds.Width, Y=sourcepointonscreen.Y+bounds.Height)
-								x = sourcepointonscreen.X + enhancedmouseevent.X  # クリックした位置の画面の左上角からのXの取得。
-								y = sourcepointonscreen.Y + enhancedmouseevent.Y + rootpanebounds.Y  # クリックした位置からメニューバーの高さ分下の位置の画面の左上角からのYの取得									
-								return x, y
+			grandchildaccessiblecontextgene = (childaccessiblecontext.getAccessibleChild(j).getAccessibleContext() for j in range(childaccessiblecontext.getAccessibleChildCount()))  # AccessibleChildのジェネレーター。
+			documentspreadsheets = [j for j in grandchildaccessiblecontextgene if j.getAccessibleRole()==84]  # DOCUMENT_SPREADSHEETのリスト。
+			if documentspreadsheets:  # DOCUMENT_SPREADSHEETを取得出来た時。
+				bounds = None  # 左上枠のbounds。
+				panel0 = None  # 左上枠。
+				for j in documentspreadsheets:
+					newbounds = j.getBounds()
+					if bounds is not None:  # DOCUMENT_SPREADSHEETのうちbounds.Xとbounds.Yがともに最小のものが左上枠。
+						if newbounds.X<bounds.X:
+							panel0 = j
+						if newbounds.Y<bounds.Y:
+							panel0 = j
+					bounds = newbounds
+				targetrangeaddress = enhancedmouseevent.Target.getRangeAddress()  # クリックした位置のセル範囲アドレスを取得。	
+				for k, subcontroller in enumerate(controller):  # 各枠のコントローラについて。インデックスも取得する。
+					cellrange = subcontroller.getReferredCells()  # 見えているセル範囲を取得。一部しかみえていないセルは含まれない。
+					if len(cellrange.queryIntersection(targetrangeaddress)):  # ターゲットが含まれるセル範囲コレクションが返る時その枠がクリックした枠。「ウィンドウの分割」では正しいiは必ずしも取得できない。
+						sourcepointonscreen =  panel0.getLocationOnScreen()  # 左上枠の左上角の点を取得(画面の左上角が原点)。
+						if k==1:  # 左下枠の時。
+							sourcepointonscreen = Point(X=sourcepointonscreen.X, Y=sourcepointonscreen.Y+bounds.Height)
+						elif k==2:  # 右上枠の時。
+							sourcepointonscreen = Point(X=sourcepointonscreen.X+bounds.Width, Y=sourcepointonscreen.Y)
+						elif k==3:  # 右下枠の時。
+							sourcepointonscreen = Point(X=sourcepointonscreen.X+bounds.Width, Y=sourcepointonscreen.Y+bounds.Height)
+						x = sourcepointonscreen.X + enhancedmouseevent.X  # クリックした位置の画面の左上角からのXの取得。
+						y = sourcepointonscreen.Y + enhancedmouseevent.Y + rootpanebounds.Y  # クリックした位置からメニューバーの高さ分下の位置の画面の左上角からのYの取得									
+						return x, y		
+			else:
+				msg = "Cannot get the AccessibleContext of the DOCUMENT_SPREADSHEET."		
+				componentwindow.getToolkit().createMessageBox(componentwindow, ERRORBOX, MessageBoxButtons.BUTTONS_OK, "dialogcommons.py", msg).execute()	
 def menuCreator(ctx, smgr):  #  メニューバーまたはポップアップメニューを作成する関数を返す。
 	def createMenu(menutype, items, attr=None):  # menutypeはMenuBarまたはPopupMenu、itemsは各メニュー項目の項目名、スタイル、適用するメソッドのタプルのタプル、attrは各項目に適用する以外のメソッド。
 		if attr is None:
