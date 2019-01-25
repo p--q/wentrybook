@@ -142,6 +142,7 @@ def getDialogPoint(doc, enhancedmouseevent):  # クリックした位置x yの�
 			else:
 				msg = "Cannot get the AccessibleContext of the DOCUMENT_SPREADSHEET."		
 				componentwindow.getToolkit().createMessageBox(componentwindow, ERRORBOX, MessageBoxButtons.BUTTONS_OK, "dialogcommons.py", msg).execute()	
+				return
 def menuCreator(ctx, smgr):  #  メニューバーまたはポップアップメニューを作成する関数を返す。
 	def createMenu(menutype, items, attr=None):  # menutypeはMenuBarまたはPopupMenu、itemsは各メニュー項目の項目名、スタイル、適用するメソッドのタプルのタプル、attrは各項目に適用する以外のメソッド。
 		if attr is None:
