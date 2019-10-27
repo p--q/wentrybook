@@ -1,12 +1,15 @@
 #!/opt/libreoffice5.4/program/python
 # -*- coding: utf-8 -*-
 import os
-from pqwentry import documentevent, journal  # Contextmenuの呼び出しは相対インポートではエラーになる。
+
 from com.sun.star.awt import MessageBoxButtons  # 定数
 from com.sun.star.awt.MessageBoxType import ERRORBOX  # enum
-from com.sun.star.table import BorderLine2, TableBorder2 # Struct
 from com.sun.star.lang import Locale  # Struct
-from com.sun.star.table import BorderLineStyle  # 定数
+from com.sun.star.table import BorderLineStyle  # Struct; 定数
+from com.sun.star.table import BorderLine2, TableBorder2
+from pqwentry import (documentevent,  # Contextmenuの呼び出しは相対インポートではエラーになる。
+                      journal)
+
 COLORS = {\
 		"magenta3": 0xFF00FF,\
 		"black": 0x000000,\
@@ -16,7 +19,7 @@ COLORS = {\
 def getModule(sheetname):  # シート名に応じてモジュールを振り分ける関数。
 	if sheetname is None:  # シート名でNoneが返ってきた時はドキュメントイベントとする。
 		return documentevent
-	elif sheetname.startswith("振替伝票"):
+	elif sheetname.startswith("振替一覧"):
 		return journal
 	return None  # モジュールが見つからなかった時はNoneを返す。
 def formatkeyCreator(doc):  # ドキュメントを引数にする。
@@ -148,4 +151,3 @@ def entry29():
 	invokeMenuEntry(29)	
 def entry30():
 	invokeMenuEntry(30)	
-	

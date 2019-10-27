@@ -1,23 +1,32 @@
 #!/opt/libreoffice5.4/program/python
 # -*- coding: utf-8 -*-
-# 振替伝票シートについて。import pydevd; pydevd.settrace(stdoutToServer=True, stderrToServer=True)
-from . import commons, datedialog, dialogcommons, documentevent, historydialog, menudialog
-import unohelper, os, json
+# 振替一覧シートについて。import pydevd; pydevd.settrace(stdoutToServer=True, stderrToServer=True)
+import json
+import os
 from collections import OrderedDict
-from itertools import chain, compress, count, islice, zip_longest
 from datetime import date, datetime, timedelta
-from com.sun.star.awt import MouseButton, MessageBoxButtons, MessageBoxResults  # 定数
+from itertools import chain, compress, count, islice, zip_longest
+
+import unohelper
+from com.sun.star.awt import (MessageBoxButtons, MessageBoxResults,  # 定数
+                              MouseButton)
 from com.sun.star.awt.MessageBoxType import QUERYBOX, WARNINGBOX  # enum
 from com.sun.star.beans import PropertyValue  # Struct
 from com.sun.star.sheet import CellFlags  # 定数
 from com.sun.star.sheet.CellInsertMode import ROWS as insert_rows  # enum
-from com.sun.star.table import BorderLine2, TableBorder2 # Struct
-from com.sun.star.table import CellVertJustify2  # 定数
-from com.sun.star.table.CellOrientation import STACKED  # enum
+from com.sun.star.table import CellVertJustify2  # Struct; 定数
+from com.sun.star.table import BorderLine2, TableBorder2
 from com.sun.star.table.CellHoriJustify import CENTER, LEFT, RIGHT  # enum
+from com.sun.star.table.CellOrientation import STACKED  # enum
 from com.sun.star.ui import ActionTriggerSeparatorType  # 定数
-from com.sun.star.ui.ContextMenuInterceptorAction import EXECUTE_MODIFIED  # enum
+from com.sun.star.ui.ContextMenuInterceptorAction import \
+    EXECUTE_MODIFIED  # enum
 from com.sun.star.util import XModifyListener
+
+from . import (commons, datedialog, dialogcommons, documentevent,
+               historydialog, menudialog)
+
+
 class Journal():  # シート固有の値。
 	def __init__(self):
 		self.kamokurow = 2  # 科目行インデックス。この上行は科目分類行、下行は補助科目行。
@@ -59,7 +68,7 @@ class SettlingDayModifyListener(unohelper.Base, XModifyListener):
 		self.setProperty = lambda x: x.setPropertyValue("NumberFormat", commons.formatkeyCreator(doc)("YYYY-MM-DD"))
 		self.showErrorMessageBox = lambda x: commons.showErrorMessageBox(doc.getCurrentController()	, x)
 	def modified(self, eventobject):  # 決算日セルが変化したら発火するメソッド。eventobject.Sourceには全シートの決算日セルのセル範囲コレクションが入っている。
-		if VARS.sheet.getName().startswith("振替伝票"):
+		if VARS.sheet.getName().startswith("振替一覧"):
 			sdaycell, edaycell = [VARS.sheet[i, VARS.daycolumn] for i in VARS.settlingdayrows]
 			sdatevalue = sdaycell.getValue()  # 期首日セルの値を取得。空セルや文字のときは0.0が返る。
 			edatevalue = edaycell.getValue()  # 期末日セルの値を取得。空セルや文字のときは0.0が返る。
@@ -89,7 +98,7 @@ class ValueModifyListener(unohelper.Base, XModifyListener):  # WindowsではModi
 		self.formatkey = commons.formatkeyCreator(xscriptcontext.getDocument())("#,##0;[BLUE]-#,##0")
 		self.slipnosubjectmodifylistener = slipnosubjectmodifylistener
 	def modified(self, eventobject):  # 固定行以下固定列右のセルが変化すると発火するメソッド。サブジェクトのどこが変化したかはわからない。eventobject.Sourceは対象全シートのセル範囲コレクション。
-		if VARS.sheet.getName().startswith("振替伝票"):
+		if VARS.sheet.getName().startswith("振替一覧"):
 			sheet = VARS.sheet
 			VARS.setSheet(sheet)  # 最終行と列を取得し直す。
 			if VARS.splittedrow<VARS.emptyrow:  # 伝票行がある時のみ。
@@ -126,7 +135,7 @@ class SlipNoModifyListener(unohelper.Base, XModifyListener):
 		self.formatkey = commons.formatkeyCreator(doc)("YYYY-MM-DD")
 	def modified(self, eventobject):  # 伝票番号列や取引日列が変化した時に発火するメソッド。eventobject.Sourceは対象全シートのセル範囲コレクション。
 		sheet = VARS.sheet
-		if sheet.getName().startswith("振替伝票"):
+		if sheet.getName().startswith("振替一覧"):
 			splittedrow = VARS.splittedrow
 			VARS.setSheet(sheet)  # 最終行と列を取得し直す。
 			if splittedrow<VARS.emptyrow:  # 伝票行がある時のみ。
@@ -249,7 +258,7 @@ def kurikoshi(xscriptcontext, querybox, txt, startday, endday):
 	newsheet = None
 	if newi<len(sheetnames):  # 現シート名の次の位置にインデックスをある時。
 		newsheetname = sheetnames[newi]  # 次の位置のシート名を取得。
-		if newsheetname.startswith("振替伝票"):  # 次期の振替伝票がすでにある時。
+		if newsheetname.startswith("振替一覧"):  # 次期の振替一覧がすでにある時。
 			msgbox = querybox("{}はすでに存在します。\n金額のみ繰り越しますか?".format(newsheetname))
 			if msgbox.execute()!=MessageBoxResults.YES:  # Yes以外の時はここで終わる。		
 				return							
@@ -265,7 +274,7 @@ def kurikoshi(xscriptcontext, querybox, txt, startday, endday):
 		edate = date(*map(int, endday.split("-")))  # 現シートの期末日のdateオブジェクトを取得。
 		newsdate = edate + timedelta(days=1)  # 次期期首日のdateオブジェクトを取得。		
 		newedate = date(edate.year+1, edate.month, edate.day)  # 次期期末日のdateオブジェクトを取得。期間の差で取得するとうるう年を考慮する必要がある。
-		newsheetname = "振替伝票_{}決算".format(newedate.isoformat().replace("-", ""))
+		newsheetname = "振替一覧_{}決算".format(newedate.isoformat().replace("-", ""))
 		sheets.copyByName(sheetname, newsheetname, newi)  # 現シートをコピーして次期シートにする。
 		newsheet = sheets[newsheetname]
 		VARS.setSheet(newsheet)	 # 新規シートに更新する。これをしないとこのシートにModifyListenerが影響しない。
